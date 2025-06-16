@@ -13,7 +13,7 @@ use crate::device::ps2::Keyboard;
 use crate::device::qemu_cfg;
 use crate::device::serial::SerialPort;
 use crate::interrupt::interrupt_dispatcher;
-use crate::memory::frames;
+use crate::memory::{ahciController, frames};
 use crate::memory::nvmem::Nfit;
 use crate::memory::pages;
 use crate::memory::pages::page_table_index;
@@ -316,6 +316,7 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
 
     // Initialize non-volatile memory (creates identity mappings for any non-volatile memory regions)
     nvmem::init();
+    ahciController::init();
 
     // As a demo for NVRAM support, we read the last boot time from NVRAM and write the current boot time to it
     if let Ok(nfit) = acpi_tables().lock().find_table::<Nfit>() {

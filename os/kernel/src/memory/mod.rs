@@ -9,6 +9,8 @@ pub mod heap;
 pub mod stack;
 pub mod acpi_handler;
 
+pub mod ahciController;
+
 #[derive(PartialEq)]
 #[derive(Clone, Copy)]
 pub enum MemorySpace {
