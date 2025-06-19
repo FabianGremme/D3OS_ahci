@@ -16,6 +16,7 @@ use crate::memory::nvmem::NfitStructureHeader;
 use crate::memory::vma::VmaType;
 use crate::storage::add_block_device;
 
+
 const MASS_STORAGE_DEVICE: BaseClass = 0x01;
 const SATA_CONTROLLER: SubClass = 0x06;
 
@@ -27,11 +28,12 @@ enum BiosHandoffFlags {
     BIOS_BUSY = 1 << 4
 }
 
-
+#[allow(warnings)]
 struct AhciController{
     hba_regs: HBARegister,
     ports: Vec<HbaPort>,
 }
+#[allow(warnings)]
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 struct HBARegister{
@@ -49,6 +51,7 @@ struct HBARegister{
      reserved: [u8;116],
      vendorSpecific: [u8;96],
 }
+#[allow(warnings)]
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 struct HbaPort {
@@ -72,8 +75,8 @@ struct HbaPort {
      deviceSleep: u32,
      reserved2: [u32;10],
      vendorSpecific: [u32;4],
-
 }
+
 /*
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
@@ -103,7 +106,7 @@ struct HbaCommandHeader {
     reserved: [u32;4],
 }*/
 
-
+#[allow(warnings)]
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 struct HbaCommandHeader {
@@ -123,7 +126,34 @@ struct HbaCommandHeader {
     reserved: [u32;4],
 }
 
+struct combined_HBA_CommandTable{
+    cmd_table: HbaCommandTable,
+    physicalRegionDescriptorTable: Vec<HbaPhysicalRegionDescriptorTableEntry>,
+}
+#[allow(warnings)]
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
+struct HbaPhysicalRegionDescriptorTableEntry {
+    dataBaseAddress: u32,
+    dataBaseAddressUpper: u32,
+    reserved1: u32,
+    rest: u32,
 
+    //uint32_t dataByteCount: 22;
+    //uint32_t reserved2: 9;
+    //uint32_t interruptOnCompletion: 1;
+}
+#[allow(warnings)]
+#[repr(C, packed)]
+#[derive(Debug)]
+struct HbaCommandTable {
+    commandFis: [u8;64],
+    atapiCommand: [u8;16],
+    reserved: [u8;48],
+}
+
+
+#[allow(warnings)]
 pub fn init(){
     info!("searching the bus for mass storage devices that use sata");
     let mut found_devices = pci_bus().search_by_class(MASS_STORAGE_DEVICE as BaseClass, SATA_CONTROLLER as SubClass);
@@ -151,7 +181,7 @@ pub fn init(){
 
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
 }
-
+#[allow(warnings)]
 impl AhciController {
 
     unsafe fn fill_hba_reg(ahci_base_addr: *mut u8) -> HBARegister{
@@ -514,10 +544,13 @@ impl AhciController {
 // Todo:
 //Erkennung der verschiedenen Geräte (ata und atapi) (Signaturen müssen nur noch gematched werden)
 //Comand Liste anschauen (es werden 31 command slots unterstützt) (es wird kein weiterer gefunden)
-//Reset vom Port impl
+
+//Reset vom Port impl (hier werden Zeiten gebraucht, sys_time.rs könnte da helfen)
 //command Table als structur festlegen und einmappen
 
 //tock registers (anschauen)
+
+//mapping genauer anschauen (Bug wenn nur genau eine Seite gemapped wird?)
 
 //alles mal in ein ganz frisches neues D3OS reinkopieren (übers Wochenende fertig)
 
