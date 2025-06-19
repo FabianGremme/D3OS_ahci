@@ -28,6 +28,15 @@ enum BiosHandoffFlags {
     BIOS_BUSY = 1 << 4
 }
 
+#[derive(Clone, Copy, Debug)]
+enum DeviceSignature {
+NONE = 0x00000000,
+ATA = 0x00000101,
+ATAPI = 0xeb140101,
+ENCLOSURE_POWER_MANAGEMENT_BRIDGE = 0xc33c0101,
+PORT_MULTIPLIER = 0x96690101
+}
+
 #[allow(warnings)]
 struct AhciController{
     hba_regs: HBARegister,
@@ -268,6 +277,8 @@ impl AhciController {
         port_offset += 4;
         let dev_sleep = ahci_base_addr.offset(port_offset) as *mut u32;
         port_offset += 4;
+
+
         let output = HbaPort{
             commandListBaseAddress: clb.read(),
             commandListBaseAddressUpper: clbu.read(),
@@ -413,11 +424,26 @@ impl AhciController {
         return (register & mask)>>bit_position;
     }
 
+    pub fn translate_signature(sign: u32)->DeviceSignature{
+        match sign {
+            0x00000000 => return DeviceSignature::NONE,
+            0x00000101 => return DeviceSignature::ATA,
+            0xeb140101 => return DeviceSignature::ATAPI,
+            0xc33c0101 => return DeviceSignature::ENCLOSURE_POWER_MANAGEMENT_BRIDGE,
+            0x96690101 => return DeviceSignature::PORT_MULTIPLIER,
+            _ => {
+                info!("value not found");
+                return DeviceSignature::NONE
+            }
+        }
+    }
+
     pub fn check_ports_for_device(& self){
         for current_port in &self.ports{
             if Self::check_port_usable(current_port.clone()){
                 let signature = current_port.signature;
-                info!("the device signature is {}", signature);
+                info!("the device signature is {:?}", Self::translate_signature(signature));
+
             }
 
         }
@@ -542,7 +568,6 @@ impl AhciController {
 }
 
 // Todo:
-//Erkennung der verschiedenen Geräte (ata und atapi) (Signaturen müssen nur noch gematched werden)
 //Comand Liste anschauen (es werden 31 command slots unterstützt) (es wird kein weiterer gefunden)
 
 //Reset vom Port impl (hier werden Zeiten gebraucht, sys_time.rs könnte da helfen)
@@ -552,7 +577,6 @@ impl AhciController {
 
 //mapping genauer anschauen (Bug wenn nur genau eine Seite gemapped wird?)
 
-//alles mal in ein ganz frisches neues D3OS reinkopieren (übers Wochenende fertig)
 
 
 
