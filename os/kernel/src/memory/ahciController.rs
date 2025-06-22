@@ -15,7 +15,11 @@ use crate::memory::{frames, pages, MemorySpace, PAGE_SIZE};
 use crate::memory::nvmem::NfitStructureHeader;
 use crate::memory::vma::VmaType;
 use crate::storage::add_block_device;
-
+use tock_registers::registers::{InMemoryRegister, ReadOnly, ReadWrite};
+use tock_registers::register_bitfields;
+use tock_registers::interfaces::Writeable;
+use tock_registers::interfaces::Readable;
+use tock_registers::interfaces::ReadWriteable;
 
 const MASS_STORAGE_DEVICE: BaseClass = 0x01;
 const SATA_CONTROLLER: SubClass = 0x06;
@@ -117,12 +121,10 @@ struct HbaCommandHeader {
 
 #[allow(warnings)]
 #[repr(C, packed)]
-#[derive(Debug, Clone, Copy)]
+//#[derive(Debug, Clone, Copy)]
 struct HbaCommandHeader {
     // DWORD 0
-    cmd_ctrl: u8,
-    cmd_ctrl2: u8,
-    physicalRegionDescriptorTableLength: u16,
+    first: u32,//ReadWrite<u32, D0::Register>,
 
     // DWORD 1
     physicalRegionDescriptorByteCount: u32,
@@ -134,6 +136,18 @@ struct HbaCommandHeader {
     // DWORD 4-7
     reserved: [u32;4],
 }
+register_bitfields![u32,D0[
+    commandFisLength OFFSET(0) NUMBITS(5) [],
+    atapi OFFSET(5) NUMBITS(1) [],
+    write OFFSET(6) NUMBITS(1) [],
+    prefetchable OFFSET(7) NUMBITS(1) [],
+    reset OFFSET(8) NUMBITS(1) [],
+    bist OFFSET(9) NUMBITS(1) [],
+    clearBusyOnOk OFFSET(10) NUMBITS(1) [],
+    reserved1 OFFSET(11) NUMBITS(1) [],
+    portMultiplierPort OFFSET(12) NUMBITS(4) [],
+    physicalRegionDescriptorTableLength OFFSET(16) NUMBITS(16) [],
+    ]];
 
 struct combined_HBA_CommandTable{
     cmd_table: HbaCommandTable,
@@ -324,16 +338,12 @@ impl AhciController {
 
         info!("dword0 = {:?}, dword1 = {:?}, dword2 = {:?}, dword3 = {:?}, dword4 = {:?}, dword5 = {:?}, dword6 = {:?}, dword7 = {:?}"
                 ,dword0.read(), dword1.read(), dword2.read(), dword3.read(), dword4.read(), dword5.read(), dword6.read(), dword7.read());
-        let phys_table_len = (dword0.read() >> 16) as u16;
-        let cmd = dword0.read() as u16;
-        let cmd1 = (cmd >> 8) as u8;
-        let cmd2 = dword0.read()  as u8;
+
+
 
         HbaCommandHeader{
             // DWORD 0
-            cmd_ctrl: cmd2,
-            cmd_ctrl2: cmd1,
-            physicalRegionDescriptorTableLength: phys_table_len,
+            first: dword0.read(),
 
             // DWORD 1
             physicalRegionDescriptorByteCount: dword1.read(),
@@ -571,7 +581,7 @@ impl AhciController {
 //Comand Liste anschauen (es werden 31 command slots unterstützt) (es wird kein weiterer gefunden)
 
 //Reset vom Port impl (hier werden Zeiten gebraucht, sys_time.rs könnte da helfen)
-//command Table als structur festlegen und einmappen
+//command Table als structur einmappen
 
 //tock registers (anschauen)
 
