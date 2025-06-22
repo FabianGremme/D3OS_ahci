@@ -68,3 +68,12 @@ pub fn sys_set_date(date_ms: usize) -> isize {
         Err(_) => false as isize,
     }
 }
+
+pub fn wait_ms(time_to_wait_ms: isize){
+    let goal_time = sys_get_system_time() + time_to_wait_ms;
+    let mut current_time = sys_get_system_time();
+    while current_time != goal_time{
+        current_time = sys_get_system_time();
+    }
+
+}

@@ -20,6 +20,7 @@ use tock_registers::register_bitfields;
 use tock_registers::interfaces::Writeable;
 use tock_registers::interfaces::Readable;
 use tock_registers::interfaces::ReadWriteable;
+use crate::syscall::sys_time::{sys_get_system_time, wait_ms};
 
 const MASS_STORAGE_DEVICE: BaseClass = 0x01;
 const SATA_CONTROLLER: SubClass = 0x06;
@@ -193,7 +194,6 @@ pub fn init(){
         ahci_controller.check_cap_nr_of_ports();
         ahci_controller.check_nr_of_command_slots();
         ahci_controller.map_command_components();
-
         //info!("teste die Funktion um mehrere Bitfelder auszulesen");
         //let testoutput = ahci_controller.general_bitlen_reader(57105, 7, 5); // hier sollte 30 rauskommen, das passt
         //info!("testoutput ist {}", testoutput);
@@ -583,7 +583,7 @@ impl AhciController {
 //Reset vom Port impl (hier werden Zeiten gebraucht, sys_time.rs könnte da helfen)
 //command Table als structur einmappen
 
-//tock registers (anschauen)
+//tock registers (anschauen) (passt nicht)
 
 //mapping genauer anschauen (Bug wenn nur genau eine Seite gemapped wird?)
 
