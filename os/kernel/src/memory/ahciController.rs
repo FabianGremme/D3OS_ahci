@@ -33,6 +33,14 @@ enum BiosHandoffFlags {
     BIOS_BUSY = 1 << 4
 }
 
+//wird verwendet, um die command engine zu starten und zu stoppen
+
+const START: u32 = 1 << 0;
+const FIS_RECIVE_ENABLE: u32 = 1 << 4;
+const FIS_RECEIVE_RUNNING: u32 = 1 << 14;
+const COMMAND_LIST_RUNNING: u32 = 1 << 15;
+
+
 #[derive(Clone, Copy, Debug)]
 enum DeviceSignature {
 NONE = 0x00000000,
@@ -197,6 +205,10 @@ pub fn init(){
         //info!("teste die Funktion um mehrere Bitfelder auszulesen");
         //let testoutput = ahci_controller.general_bitlen_reader(57105, 7, 5); // hier sollte 30 rauskommen, das passt
         //info!("testoutput ist {}", testoutput);
+
+        info!("before cmd");
+        ahci_controller.test_ports_command_engine();
+        info!("after cmd");
 
     }
 
@@ -586,6 +598,35 @@ impl AhciController {
 
         }
 
+    }
+
+    pub fn test_ports_command_engine(&self){
+        //der Port muss noch zurückgesetzt werden, aber das kommt noch
+        for port in &self.ports{
+            if Self::check_port_usable(port.clone()){
+                info!("befor single start");
+                self.start_cmd_engine(*port);
+                info!("after single start");
+                self.stop_cmd_engine(*port);
+                info!("after single stop");
+            }
+
+        }
+
+    }
+
+    pub fn start_cmd_engine(&self, mut port: HbaPort){
+        while(port.command & COMMAND_LIST_RUNNING) > 0{
+            wait_ms(10);
+        }
+        port.command |= (START | FIS_RECIVE_ENABLE);
+    }
+
+    pub fn stop_cmd_engine(&self, mut port: HbaPort){
+        port.command &= (START | FIS_RECIVE_ENABLE);
+        while (port.command & (FIS_RECEIVE_RUNNING | COMMAND_LIST_RUNNING)) > 0{
+            wait_ms(10);
+        }
     }
 
     /*
