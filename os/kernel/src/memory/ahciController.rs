@@ -392,6 +392,8 @@ impl AhciController {
                 address,
                 length
             );
+
+        info!("length is {} and num_pages is {}", length, length/PAGE_SIZE as u64);
         let process = process_manager()
             .read()
             .kernel_process()
@@ -400,6 +402,11 @@ impl AhciController {
         // Map non-volatile memory range to kernel address space
         let start_page = pages::page_from_u64(address).expect("address is not page aligned");
         let start_page_frame = frames::frame_from_u64(address).expect("address is not page aligned");
+
+        let test = PhysFrameRange {
+            start: start_page_frame,
+            end: start_page_frame + ((length + PAGE_SIZE as u64 -1)  / PAGE_SIZE as u64)};
+        info!("testframe is {:?}", test);
 
         // Allocate virtual memory area for the non-volatile memory
         let vma = process.virtual_address_space.alloc_vma(
@@ -550,16 +557,23 @@ impl AhciController {
     pub fn map_command_for_port(&self, port: HbaPort){
         //baue die Adresse für die 32 cmd header
         let cmd_header_addr:u64 = port.commandListBaseAddress as u64 | ((port.commandListBaseAddressUpper as u64) << 32);
-        let size_cmd_header = 1024;
+        let size_cmd_header = 1024; // das wird vom
 
         //baue die Adresse für die received FIS
         let received_fis: u64 = port.fisBaseAddress as u64 | ((port.fisBaseAddressUpper as u64) << 32);
         let size_received_fis = 256;
         info!("die Addressen sind: cmd_header: {:x}, received_fis: {:x}", cmd_header_addr, received_fis);
         unsafe {
-            Self::map_general(cmd_header_addr, size_cmd_header, "cmd_hd");
-            Self::map_general(received_fis, size_received_fis, "rc_fis");
+            //falls zwei memory spaces auf je kleiner als eine Seite sind, wird nach den Startadressen abhängig gemacht,
+            // ob sie spaces sich die Page teilen, oder separate Pages erhalten
 
+            if received_fis - cmd_header_addr >= PAGE_SIZE as u64{
+                Self::map_general(cmd_header_addr, PAGE_SIZE as u64, "cmd_hd");
+                Self::map_general(received_fis, PAGE_SIZE as u64, "rc_fis");
+            }else {
+                // cmd header ist vor page size. beide sind kleiner als eine Page, also teilen sie sich zwei Seiten
+                Self::map_general(cmd_header_addr, 2 * PAGE_SIZE as u64, "cmd_and_fis");
+            }
 
             //test if there is actual memory
             let cmd_header1 = Self::fill_cmd_header(cmd_header_addr as *mut u8);
@@ -574,6 +588,28 @@ impl AhciController {
 
     }
 
+    /*
+
+    void AhciController::HbaPort::startCommandEngine() {
+    // Wait until the controller has stopped processing commands
+    while (command & COMMAND_LIST_RUNNING) {
+        Util::Async::Thread::sleep(Util::Time::Timestamp::ofMilliseconds(10));
+    }
+
+    command |= (START | FIS_RECEIVE_ENABLE);
+}
+
+void AhciController::HbaPort::stopCommandEngine() {
+    // Clear start and FIS receive bits
+    command &= ~(START | FIS_RECEIVE_ENABLE);
+
+    // Wait until the controller has stopped processing commands
+    while (command & (FIS_RECEIVE_RUNNING | COMMAND_LIST_RUNNING)) {
+        Util::Async::Thread::sleep(Util::Time::Timestamp::ofMilliseconds(10));
+    }
+}
+     */
+
 
 }
 
@@ -585,7 +621,6 @@ impl AhciController {
 
 //tock registers (anschauen) (passt nicht)
 
-//mapping genauer anschauen (Bug wenn nur genau eine Seite gemapped wird?)
 
 
 
