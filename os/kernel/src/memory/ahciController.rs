@@ -158,6 +158,8 @@ register_bitfields![u32,D0[
     physicalRegionDescriptorTableLength OFFSET(16) NUMBITS(16) [],
     ]];
 
+
+//Laut Bachelorarbeit soll eine combined HBA Command Table aus einer cmd_table und 8 Einheiten der Liste entstehen
 struct combined_HBA_CommandTable{
     cmd_table: HbaCommandTable,
     physicalRegionDescriptorTable: Vec<HbaPhysicalRegionDescriptorTableEntry>,
@@ -567,9 +569,11 @@ impl AhciController {
     }
 
     pub fn map_command_for_port(&self, port: HbaPort){
+        self.stop_cmd_engine(port);
         //baue die Adresse für die 32 cmd header
+        // die header zusammen bilden die command list
         let cmd_header_addr:u64 = port.commandListBaseAddress as u64 | ((port.commandListBaseAddressUpper as u64) << 32);
-        let size_cmd_header = 1024; // das wird vom
+        let size_cmd_header = 1024;
 
         //baue die Adresse für die received FIS
         let received_fis: u64 = port.fisBaseAddress as u64 | ((port.fisBaseAddressUpper as u64) << 32);
@@ -595,6 +599,11 @@ impl AhciController {
             //map the first command table with the info of the command header
             let cmd_table_addr = cmd_header1.commandTableDescriptorBaseAddress as u64 | ((cmd_header1.commandTableDescriptorBaseAddressUpper as u64)<<32);
             info!("the cmd_table_addr is {:x}", cmd_table_addr);
+            let cmd_table_size = 256;
+            //wahrscheinlich fällt das irgendwo mit rein
+            //Self::map_general(received_fis, PAGE_SIZE as u64, "cmd_tbl");
+
+            self.start_cmd_engine(port);
 
         }
 
@@ -616,17 +625,21 @@ impl AhciController {
     }
 
     pub fn start_cmd_engine(&self, mut port: HbaPort){
+        info!("port ist nun {:?}", port);
         while(port.command & COMMAND_LIST_RUNNING) > 0{
             wait_ms(10);
         }
         port.command |= (START | FIS_RECIVE_ENABLE);
+        info!("port ist nun {:?}", port);
     }
 
     pub fn stop_cmd_engine(&self, mut port: HbaPort){
+        info!("port ist nun {:?}", port);
         port.command &= (START | FIS_RECIVE_ENABLE);
         while (port.command & (FIS_RECEIVE_RUNNING | COMMAND_LIST_RUNNING)) > 0{
             wait_ms(10);
         }
+        info!("port ist nun {:?}", port);
     }
 
     /*
@@ -661,6 +674,11 @@ void AhciController::HbaPort::stopCommandEngine() {
 //command Table als structur einmappen
 
 //tock registers (anschauen) (passt nicht)
+
+//prdt mappen und genauer anschauen:
+//  das Feld prdt, welches aktuell noch zusammen ist, muss auf 8 begrenzt werden
+// die prdt fällt wohl auf eine noch nicht ausgelastete Page (Adressen nachschauen)
+// mapping fertig machen
 
 
 
