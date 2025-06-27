@@ -599,9 +599,9 @@ impl AhciController {
             //map the first command table with the info of the command header
             let cmd_table_addr = cmd_header1.commandTableDescriptorBaseAddress as u64 | ((cmd_header1.commandTableDescriptorBaseAddressUpper as u64)<<32);
             info!("the cmd_table_addr is {:x}", cmd_table_addr);
+            // das ist die Größe aus der combined command table mit 8 Inhalten
             let cmd_table_size = 256;
-            //wahrscheinlich fällt das irgendwo mit rein
-            //Self::map_general(received_fis, PAGE_SIZE as u64, "cmd_tbl");
+            Self::map_general(cmd_table_addr, PAGE_SIZE as u64, "cmd_tbl");
 
             self.start_cmd_engine(port);
 
@@ -642,27 +642,7 @@ impl AhciController {
         info!("port ist nun {:?}", port);
     }
 
-    /*
 
-    void AhciController::HbaPort::startCommandEngine() {
-    // Wait until the controller has stopped processing commands
-    while (command & COMMAND_LIST_RUNNING) {
-        Util::Async::Thread::sleep(Util::Time::Timestamp::ofMilliseconds(10));
-    }
-
-    command |= (START | FIS_RECEIVE_ENABLE);
-}
-
-void AhciController::HbaPort::stopCommandEngine() {
-    // Clear start and FIS receive bits
-    command &= ~(START | FIS_RECEIVE_ENABLE);
-
-    // Wait until the controller has stopped processing commands
-    while (command & (FIS_RECEIVE_RUNNING | COMMAND_LIST_RUNNING)) {
-        Util::Async::Thread::sleep(Util::Time::Timestamp::ofMilliseconds(10));
-    }
-}
-     */
 
 
 }
@@ -670,15 +650,13 @@ void AhciController::HbaPort::stopCommandEngine() {
 // Todo:
 //Comand Liste anschauen (es werden 31 command slots unterstützt) (es wird kein weiterer gefunden)
 
-//Reset vom Port impl (hier werden Zeiten gebraucht, sys_time.rs könnte da helfen)
-//command Table als structur einmappen
 
 //tock registers (anschauen) (passt nicht)
 
 //prdt mappen und genauer anschauen:
 //  das Feld prdt, welches aktuell noch zusammen ist, muss auf 8 begrenzt werden
-// die prdt fällt wohl auf eine noch nicht ausgelastete Page (Adressen nachschauen)
-// mapping fertig machen
+//command table mit Werten befülen / mapping testen
+
 
 
 
