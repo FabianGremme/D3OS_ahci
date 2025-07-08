@@ -130,8 +130,8 @@ struct HbaCommandHeader {
 
 #[allow(warnings)]
 #[repr(C, packed)]
-//#[derive(Debug, Clone, Copy)]
-struct HbaCommandHeader {
+#[derive(Debug, Clone, Copy)]
+struct HbaCommandTableHeader {
     // DWORD 0
     first: u32,//ReadWrite<u32, D0::Register>,
 
@@ -145,7 +145,7 @@ struct HbaCommandHeader {
     // DWORD 4-7
     reserved: [u32;4],
 }
-register_bitfields![u32,D0[
+/*register_bitfields![u32,D0[
     commandFisLength OFFSET(0) NUMBITS(5) [],
     atapi OFFSET(5) NUMBITS(1) [],
     write OFFSET(6) NUMBITS(1) [],
@@ -156,7 +156,7 @@ register_bitfields![u32,D0[
     reserved1 OFFSET(11) NUMBITS(1) [],
     portMultiplierPort OFFSET(12) NUMBITS(4) [],
     physicalRegionDescriptorTableLength OFFSET(16) NUMBITS(16) [],
-    ]];
+    ]];*/
 
 
 //Laut Bachelorarbeit soll eine combined HBA Command Table aus einer cmd_table und 8 Einheiten der Liste entstehen
@@ -333,7 +333,7 @@ impl AhciController {
         output
     }
 
-    unsafe fn fill_cmd_header(start: *mut u8) ->HbaCommandHeader{
+    unsafe fn fill_cmd_table_header(start: *mut u8) ->HbaCommandTableHeader{
         let dword0 = start as *mut u32;
         let mut offset = 4;
         let dword1 = start.offset(offset) as *mut u32;
@@ -355,7 +355,7 @@ impl AhciController {
 
 
 
-        HbaCommandHeader{
+        HbaCommandTableHeader{
             // DWORD 0
             first: dword0.read(),
 
@@ -567,41 +567,51 @@ impl AhciController {
         }
 
     }
+    // es werden drei Strukturen gemappt:
+    // die Command list structure besteht aus 32 Command headern. jeder header besteht aus 4 Dwords und 4 reserved Dwords
+    // die Region für received fis werden direkt aus dem Port gelesen und hier können von eingehenden Fis Werte geschrieben werden
+    // jeder header innerhalb der command list verweist auf eine eigene command table, in der command fis, atapi command und physical region descriptor table liegen
 
     pub fn map_command_for_port(&self, port: HbaPort){
         self.stop_cmd_engine(port);
         //baue die Adresse für die 32 cmd header
         // die header zusammen bilden die command list
-        let cmd_header_addr:u64 = port.commandListBaseAddress as u64 | ((port.commandListBaseAddressUpper as u64) << 32);
+        let first_cmd_header_addr:u64 = port.commandListBaseAddress as u64 | ((port.commandListBaseAddressUpper as u64) << 32);
         let size_cmd_header = 1024;
 
         //baue die Adresse für die received FIS
         let received_fis: u64 = port.fisBaseAddress as u64 | ((port.fisBaseAddressUpper as u64) << 32);
         let size_received_fis = 256;
-        info!("die Addressen sind: cmd_header: {:x}, received_fis: {:x}", cmd_header_addr, received_fis);
+        info!("die Addressen sind: cmd_header: {:x}, received_fis: {:x}", first_cmd_header_addr, received_fis);
         unsafe {
             //falls zwei memory spaces auf je kleiner als eine Seite sind, wird nach den Startadressen abhängig gemacht,
             // ob sie spaces sich die Page teilen, oder separate Pages erhalten
 
-            if received_fis - cmd_header_addr >= PAGE_SIZE as u64{
-                Self::map_general(cmd_header_addr, PAGE_SIZE as u64, "cmd_hd");
+            if received_fis - first_cmd_header_addr >= PAGE_SIZE as u64{
+                Self::map_general(first_cmd_header_addr, PAGE_SIZE as u64, "cmd_hd");
                 Self::map_general(received_fis, PAGE_SIZE as u64, "rc_fis");
             }else {
                 // cmd header ist vor page size. beide sind kleiner als eine Page, also teilen sie sich zwei Seiten
-                Self::map_general(cmd_header_addr, 2 * PAGE_SIZE as u64, "cmd_and_fis");
+                Self::map_general(first_cmd_header_addr, 2 * PAGE_SIZE as u64, "cmd_and_fis");
             }
 
-            //test if there is actual memory
-            let cmd_header1 = Self::fill_cmd_header(cmd_header_addr as *mut u8);
-            let cmd_header2 = Self::fill_cmd_header((cmd_header_addr + 8*32) as *mut u8);
-            let cmd_header3 = Self::fill_cmd_header((cmd_header_addr + 16*32) as *mut u8);
+            //test if the cmd_List has a
+            let cmd_header1 = Self::fill_cmd_table_header(first_cmd_header_addr as *mut u8);
+            info!("the first command header struct has the following values: {:?}", cmd_header1);
+            // hier werden die einzelnen Werte von cmd_header1 wie prdt, etc ausgeschrieben
+            let full_register = cmd_header1.first;
+            let prdt = AhciController::general_bitlen_reader(full_register, 16, 16);
+            info!("prdt ist {:?}", prdt);
 
-            //map the first command table with the info of the command header
-            let cmd_table_addr = cmd_header1.commandTableDescriptorBaseAddress as u64 | ((cmd_header1.commandTableDescriptorBaseAddressUpper as u64)<<32);
-            info!("the cmd_table_addr is {:x}", cmd_table_addr);
+            //map the first command table with the info of the first command header
+            let first_cmd_table_addr = cmd_header1.commandTableDescriptorBaseAddress as u64 | ((cmd_header1.commandTableDescriptorBaseAddressUpper as u64)<<32);
+            info!("the first_cmd_table_addr is {:x}", first_cmd_table_addr);
             // das ist die Größe aus der combined command table mit 8 Inhalten
             let cmd_table_size = 256;
-            Self::map_general(cmd_table_addr, PAGE_SIZE as u64, "cmd_tbl");
+            Self::map_general(first_cmd_table_addr, PAGE_SIZE as u64, "cmd_tbl");
+
+
+            //check, if the first command table has actual values inside it
 
             self.start_cmd_engine(port);
 
@@ -641,10 +651,6 @@ impl AhciController {
         }
         info!("port ist nun {:?}", port);
     }
-
-
-
-
 }
 
 // Todo:
@@ -654,8 +660,17 @@ impl AhciController {
 //tock registers (anschauen) (passt nicht)
 
 //prdt mappen und genauer anschauen:
-//  das Feld prdt, welches aktuell noch zusammen ist, muss auf 8 begrenzt werden
-//command table mit Werten befülen / mapping testen
+//  das Feld prdt, welches aktuell noch zusammen ist, muss auf 8 begrenzt werden (fertig)
+
+//command table mit Werten befülen / mapping testen (command table ist zu groß und unbestimmt, als dass sie mit Werten gefüllt werden kann. aktuell ist die prdtl = 1)
+
+//command table mit allen 32 headern versuchen zu allocaten
+
+// Warum wird im HHU OS ein Fehler mit F zugeschrieben, als reset?
+
+//device erkennung impl
+
+
 
 
 
