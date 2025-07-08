@@ -211,6 +211,7 @@ pub fn init(){
         info!("before cmd");
         ahci_controller.test_ports_command_engine();
         info!("after cmd");
+        ahci_controller.find_slot_all_ports();
 
     }
 
@@ -551,14 +552,16 @@ impl AhciController {
         info!("laut capabilities werden {} Ports unterstützt.", nr_of_ports);
     }
 
-    pub fn check_nr_of_command_slots(&self){
+
+    pub fn check_nr_of_command_slots(&self)->u32{
         let cap = self.hba_regs.hostCapabilities;
         let nr_of_cmds = Self::general_bitlen_reader(cap, 8, 5);
         info!("laut capabilities werden {} Command slots unterstützt.", nr_of_cmds);
+        nr_of_cmds
     }
 
     pub fn map_command_components(&self){
-        //der Port muss noch zurückgesetzt werden, aber das kommt noch
+        info!("self.ports ist: {:?}", self.ports);
         for port in &self.ports{
             if Self::check_port_usable(port.clone()){
                 self.map_command_for_port(*port);
@@ -620,7 +623,6 @@ impl AhciController {
     }
 
     pub fn test_ports_command_engine(&self){
-        //der Port muss noch zurückgesetzt werden, aber das kommt noch
         for port in &self.ports{
             if Self::check_port_usable(port.clone()){
                 info!("befor single start");
@@ -633,7 +635,6 @@ impl AhciController {
         }
 
     }
-
     pub fn start_cmd_engine(&self, mut port: HbaPort){
         info!("port ist nun {:?}", port);
         while(port.command & COMMAND_LIST_RUNNING) > 0{
@@ -651,6 +652,55 @@ impl AhciController {
         }
         info!("port ist nun {:?}", port);
     }
+
+
+    //finden eines freien command headers über den port
+    pub fn find_cmd_slot(&self, mut port: HbaPort) -> i32{
+        let nr_cmd_slots = self.check_nr_of_command_slots();
+        let mut slots = port.sataActive | port.sataError;
+        info!("slots ist {:b}", slots);
+        for i in 0..nr_cmd_slots{
+            if (slots & 1) == 0{
+                info!("slot gefunden an Stelle {}", i);
+                return i as i32;
+            }
+            slots >>=1;
+        }
+        info!("kein Slot gefunden!");
+        -1
+    }
+
+    pub fn find_slot_all_ports(&self){
+        for port in &self.ports{
+            if Self::check_port_usable(port.clone()){
+                self.find_cmd_slot(*port);
+            }
+
+        }
+
+    }
+
+    //Befehl für identify device:
+    /*AhciController::DeviceInfo* AhciController::identifyDevice(uint32_t portNumber) {
+    uint8_t commandFis[64]{};
+    uint8_t atapiCommand[16]{};
+
+    auto &hostToDeviceFis = reinterpret_cast<FisRegisterHostToDevice>(commandFis);
+    hostToDeviceFis.type = REGISTER_HOST_TO_DEVICE;
+    hostToDeviceFis.commandControl = 1;
+    hostToDeviceFis.command = registers->ports[portNumber].signature == ATA ? ATA_IDENTIFY : ATAPI_IDENTIFY;
+
+    auto info = static_cast<DeviceInfo>(readFromDevice(portNumber, 512, commandFis, atapiCommand));
+    if (info != nullptr) {
+    byteSwapString(reinterpret_cast<char>(info->model), sizeof(DeviceInfo::model));
+    byteSwapString(reinterpret_cast<char>(info->serialNumber), sizeof(DeviceInfo::serialNumber));
+    byteSwapString(reinterpret_cast<char*>(info->firmwareRevision), sizeof(DeviceInfo::firmwareRevision));
+    }
+
+    return info;
+    }*/
+
+
 }
 
 // Todo:
@@ -667,6 +717,7 @@ impl AhciController {
 //command table mit allen 32 headern versuchen zu allocaten
 
 // Warum wird im HHU OS ein Fehler mit F zugeschrieben, als reset?
+// Warum bekomme ich viele Ports mit der selben Adresse? gibt es nur einen Port, oder woran liegt das?
 
 //device erkennung impl
 
