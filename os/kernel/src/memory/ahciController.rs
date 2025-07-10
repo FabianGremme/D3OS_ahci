@@ -310,42 +310,42 @@ struct DeviceInfo {
     } __attribute__((packed));
  */
 
-//damit host to device nachrichten senden kann, muss host to device fis als struktur existieren
-
-/*
+#[allow(warnings)]
+#[repr(C, packed)]
+#[derive(Debug, Clone, Copy)]
 struct FisRegisterHostToDevice {
-        // DWORD 0
-        FisType type;
+    // DWORD 0
+    typ: u8,
+    combined: u8,
 
-        uint8_t portMultiplierPort: 4;
-        uint8_t reserved1: 3;
-        uint8_t commandControl: 1;
+    //uint8_t portMultiplierPort: 4;
+    //uint8_t reserved1: 3;
+    //uint8_t commandControl: 1;
 
-        uint8_t command;
-        uint8_t featureLow;
+    command: u8,
+    featureLow: u8,
 
-        // DWORD 1
-        uint8_t lba0;
-        uint8_t lba1;
-        uint8_t lba2;
-        uint8_t device;
+    // DWORD 1
+    lba0: u8,
+    lba1: u8,
+    lba2: u8,
+    device: u8,
 
-        // DWORD 2
-        uint8_t lba3;
-        uint8_t lba4;
-        uint8_t lba5;
-        uint8_t featureHigh;
+    // DWORD 2
+    lba3: u8,
+    lba4: u8,
+    lba5: u8,
+    featureHigh: u8,
 
-        // DWORD 3
-        uint8_t countLow;
-        uint8_t countHigh;
-        uint8_t isochronousCommandCompletion;
-        uint8_t control;
+    // DWORD 3
+    countLow: u8,
+    countHigh: u8,
+    isochronousCommandCompletion: u8,
+    control: u8,
 
-        // DWORD 4
-        uint32_t reserved2;
-    } attribute((packed));
- */
+    // DWORD 4
+    reserved2: u32,
+}
 
 
 #[allow(warnings)]
