@@ -1,7 +1,10 @@
+use alloc::alloc::alloc_zeroed;
+use alloc::boxed::{Box};
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::any::Any;
+use core::ptr::null;
 use log::info;
 use pci_types::{BaseClass, EndpointHeader, SubClass};
 use spin::RwLock;
@@ -20,6 +23,7 @@ use tock_registers::register_bitfields;
 use tock_registers::interfaces::Writeable;
 use tock_registers::interfaces::Readable;
 use tock_registers::interfaces::ReadWriteable;
+use crate::memory::frames::alloc;
 use crate::syscall::sys_time::{sys_get_system_time, wait_ms};
 
 const MASS_STORAGE_DEVICE: BaseClass = 0x01;
@@ -166,7 +170,7 @@ struct HbaPhysicalRegionDescriptorTableEntry {
 #[allow(warnings)]
 #[repr(C, packed)]
 #[derive(Debug)]
-struct HbaCommandTable {
+pub(crate) struct HbaCommandTable {
     commandFis: [u8;64],
     atapiCommand: [u8;16],
     reserved: [u8;48],
@@ -359,6 +363,10 @@ pub fn init(){
         ahci_controller.test_ports_command_engine();
         info!("after cmd");
         ahci_controller.find_slot_all_ports();
+        let var = Box::new(16);
+        let pointer = &var;
+        info!("pointer ist bei {:?}, und hat value {:?}", pointer, var);
+        ahci_controller.create_cmd_entry(1, pointer);
 
     }
 
@@ -817,13 +825,17 @@ impl AhciController {
         -1
     }
 
-    pub fn find_slot_all_ports(&self){
+    pub fn find_slot_all_ports(&self) -> Option<HbaPort> {
         for port in &self.ports{
             if Self::check_port_usable(port.clone()){
-                self.find_cmd_slot(*port);
+                if (self.find_cmd_slot(*port)) != -1{
+                    return Some(*port);
+
+                }
             }
 
         }
+        None
 
     }
 
@@ -832,13 +844,17 @@ impl AhciController {
     uint8_t commandFis[64]{};
     uint8_t atapiCommand[16]{};
 
+    //hier wird das Fis zusammengebaut
     auto &hostToDeviceFis = reinterpret_cast<FisRegisterHostToDevice>(commandFis);
     hostToDeviceFis.type = REGISTER_HOST_TO_DEVICE;
     hostToDeviceFis.commandControl = 1;
     hostToDeviceFis.command = registers->ports[portNumber].signature == ATA ? ATA_IDENTIFY : ATAPI_IDENTIFY;
 
+    //hier wird das abgesendet
     auto info = static_cast<DeviceInfo>(readFromDevice(portNumber, 512, commandFis, atapiCommand));
+    //info ist wohl hier das device info, welches man aus readFromDevice bekommen hat
     if (info != nullptr) {
+    Auslesen der info Werte
     byteSwapString(reinterpret_cast<char>(info->model), sizeof(DeviceInfo::model));
     byteSwapString(reinterpret_cast<char>(info->serialNumber), sizeof(DeviceInfo::serialNumber));
     byteSwapString(reinterpret_cast<char*>(info->firmwareRevision), sizeof(DeviceInfo::firmwareRevision));
@@ -846,6 +862,10 @@ impl AhciController {
 
     return info;
     }*/
+
+    pub fn read_from_device(portnr: u32,byte_count: u32, command_fis:[u8;64], atapi_command: [u8;16]){
+
+    }
 
     //vorher muss die read from device implementiert werden:
     /*
@@ -867,7 +887,7 @@ impl AhciController {
         return nullptr;
     }
 
-    autodmaBuffer = allocateDmaBuffer(byteCount);
+    auto dmaBuffer = allocateDmaBuffer(byteCount);
     auto physicalDmaAddress = memoryService.getPhysicalAddress(dmaBuffer);
 
     autocommandTable = HbaCommandTable::createCommandTable(byteCount, physicalDmaAddress);
@@ -895,6 +915,59 @@ impl AhciController {
 }
      */
 
+    /*AhciController::HbaCommandTable * AhciController::HbaCommandTable::createCommandTable(uint32_t byteCount, void physicalDmaBuffer) {
+    auto &memoryService = Kernel::Service::getService<Kernel::MemoryService>();
+
+    //also dividieren und falls 0, dann ein mehr?
+    auto descriptorCount = byteCount % BYTES_PER_DESCRIPTOR_ENTRY == 0 ? (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) : (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) + 1;
+
+    // hier wird die gesamte größe fürs Mapping berechnet (noch zu tun)
+    auto tableSize = sizeof(commandFis) + sizeof(atapiCommand) + sizeof(reserved) + descriptorCount * sizeof(HbaPhysicalRegionDescriptorTableEntry);
+    auto tablePages = tableSize % Util::PAGESIZE == 0 ? (tableSize / Util::PAGESIZE) : (tableSize / Util::PAGESIZE) + 1;
+    auto commandTable = reinterpret_cast<HbaCommandTable>(memoryService.mapIO(tablePages));
+    Util::Address(commandTable).setRange(0, tableSize);
+
+    for (uint32_t i = 0; i < descriptorCount; i++) {
+        auto &entry = commandTable->physicalRegionDescriptorTable[i];
+
+         uint32_t remainingBytes = byteCount - (i * BYTES_PER_DESCRIPTOR_ENTRY);
+        entry.dataBaseAddress = reinterpret_cast<uint32_t>(physicalDmaBuffer) + i * BYTES_PER_DESCRIPTOR_ENTRY;
+        entry.dataByteCount = (remainingBytes < BYTES_PER_DESCRIPTOR_ENTRY ? remainingBytes : BYTES_PER_DESCRIPTOR_ENTRY) - 1;
+    }
+    return commandTable;
+    }*/
+
+    //hier muss noch die combined command table gemacht werden
+    pub fn create_hba_cmd_table()->HbaCommandTable{
+        // füllt nur mit 0 auf, weil das später anders reinkopiert wird
+        let output = HbaCommandTable{
+            commandFis: [0;64],
+            atapiCommand: [0;16],
+            reserved: [0;48],
+        };
+        return output;
+    }
+    pub fn create_cmd_entry(&self, byte_count: u32, physical_dma_buffer : &u8) ->Vec<HbaPhysicalRegionDescriptorTableEntry>{
+        let mut descriptor_count;
+        if byte_count / 4096 == 0{
+            descriptor_count = (byte_count / 4096) +1;
+        }else{
+            descriptor_count = byte_count / 4096;
+        }
+        info!("descriptor count ist {}", descriptor_count);
+
+        for i in 0..descriptor_count{
+            info!("dma_buffer is at {:p}", physical_dma_buffer);
+        }
+
+
+        let mut output : Vec<HbaPhysicalRegionDescriptorTableEntry> = Vec::<HbaPhysicalRegionDescriptorTableEntry>::new();
+        return output;
+
+    }
+
+
+
 
 }
 
@@ -910,7 +983,7 @@ impl AhciController {
 
 
 
-// Warum wird im HHU OS ein Fehler mit F zugeschrieben, als reset?
+// Warum wird im HHU OS ein Fehler mit F zugeschrieben, als reset? (angelescu fragen)
 // Warum bekomme ich viele Ports mit der selben Adresse? gibt es nur einen Port, oder woran liegt das?
 //welche Verträge hat die Uni mit Verlegern? kostenlose Bücher?
 
@@ -918,6 +991,11 @@ impl AhciController {
 
 //device erkennung impl
 //  read from device impl
+    // alloc vom dma Speicher machen
+    // create command table impl
+        //schauen, wo der dma buffer liegt
+        //schauen, ob ich das noch mappen muss
+    // verstehen, wie der dma buffer den Inhalt bekommt
 // verstehen, wie man von read from device in das struct kommt
 
 
