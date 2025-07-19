@@ -363,10 +363,11 @@ pub fn init(){
         ahci_controller.test_ports_command_engine();
         info!("after cmd");
         ahci_controller.find_slot_all_ports();
-        let var = Box::new(16);
-        let pointer = &var;
+        let var:Box<u32> = Box::new(40);
+        info!("size of var ist {:?}", size_of_val(&var));
+        let pointer = var.as_ref();
         info!("pointer ist bei {:?}, und hat value {:?}", pointer, var);
-        ahci_controller.create_cmd_entry(1, pointer);
+        ahci_controller.create_combined_hba_cmd_table(1, pointer);
 
     }
 
@@ -916,38 +917,31 @@ impl AhciController {
      */
 
     /*AhciController::HbaCommandTable * AhciController::HbaCommandTable::createCommandTable(uint32_t byteCount, void physicalDmaBuffer) {
-    auto &memoryService = Kernel::Service::getService<Kernel::MemoryService>();
+    #auto &memoryService = Kernel::Service::getService<Kernel::MemoryService>();
 
     //also dividieren und falls 0, dann ein mehr?
-    auto descriptorCount = byteCount % BYTES_PER_DESCRIPTOR_ENTRY == 0 ? (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) : (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) + 1;
+    #auto descriptorCount = byteCount % BYTES_PER_DESCRIPTOR_ENTRY == 0 ? (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) : (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) + 1;
 
-    // hier wird die gesamte größe fürs Mapping berechnet (noch zu tun)
+    // hier wird die gesamte größe fürs Mapping berechnet (noch zu tun?)
     auto tableSize = sizeof(commandFis) + sizeof(atapiCommand) + sizeof(reserved) + descriptorCount * sizeof(HbaPhysicalRegionDescriptorTableEntry);
     auto tablePages = tableSize % Util::PAGESIZE == 0 ? (tableSize / Util::PAGESIZE) : (tableSize / Util::PAGESIZE) + 1;
     auto commandTable = reinterpret_cast<HbaCommandTable>(memoryService.mapIO(tablePages));
     Util::Address(commandTable).setRange(0, tableSize);
 
-    for (uint32_t i = 0; i < descriptorCount; i++) {
-        auto &entry = commandTable->physicalRegionDescriptorTable[i];
+    #for (uint32_t i = 0; i < descriptorCount; i++) {
+       # auto &entry = commandTable->physicalRegionDescriptorTable[i];
 
-         uint32_t remainingBytes = byteCount - (i * BYTES_PER_DESCRIPTOR_ENTRY);
-        entry.dataBaseAddress = reinterpret_cast<uint32_t>(physicalDmaBuffer) + i * BYTES_PER_DESCRIPTOR_ENTRY;
-        entry.dataByteCount = (remainingBytes < BYTES_PER_DESCRIPTOR_ENTRY ? remainingBytes : BYTES_PER_DESCRIPTOR_ENTRY) - 1;
+         #uint32_t remainingBytes = byteCount - (i * BYTES_PER_DESCRIPTOR_ENTRY);
+        #entry.dataBaseAddress = reinterpret_cast<uint32_t>(physicalDmaBuffer) + i * BYTES_PER_DESCRIPTOR_ENTRY;
+        #entry.dataByteCount = (remainingBytes < BYTES_PER_DESCRIPTOR_ENTRY ? remainingBytes : BYTES_PER_DESCRIPTOR_ENTRY) - 1;
     }
-    return commandTable;
+    #return commandTable;
     }*/
 
     //hier muss noch die combined command table gemacht werden
-    pub fn create_hba_cmd_table()->HbaCommandTable{
-        // füllt nur mit 0 auf, weil das später anders reinkopiert wird
-        let output = HbaCommandTable{
-            commandFis: [0;64],
-            atapiCommand: [0;16],
-            reserved: [0;48],
-        };
-        return output;
-    }
-    pub fn create_cmd_entry(&self, byte_count: u32, physical_dma_buffer : &u8) ->Vec<HbaPhysicalRegionDescriptorTableEntry>{
+
+    pub fn create_combined_hba_cmd_table(&self, byte_count: u32, physical_dma_buffer : &u32)->combined_HBA_CommandTable{
+        let cmd_table = self.create_hba_cmd_table();
         let mut descriptor_count;
         if byte_count / 4096 == 0{
             descriptor_count = (byte_count / 4096) +1;
@@ -955,15 +949,43 @@ impl AhciController {
             descriptor_count = byte_count / 4096;
         }
         info!("descriptor count ist {}", descriptor_count);
+        let cmd_vec = self.create_cmd_vec(byte_count, physical_dma_buffer, descriptor_count);
 
-        for i in 0..descriptor_count{
-            info!("dma_buffer is at {:p}", physical_dma_buffer);
+        combined_HBA_CommandTable{
+            cmd_table,
+            physicalRegionDescriptorTable: cmd_vec,
         }
 
 
+    }
+    pub fn create_hba_cmd_table(&self)->HbaCommandTable{
+        // füllt nur mit 0 auf, weil das später anders reinkopiert wird
+        let output = HbaCommandTable{
+            commandFis: [0;64],
+            atapiCommand: [0;16],
+            reserved: [0;48],
+        };
+        output
+    }
+    pub fn create_cmd_vec(&self, byte_count: u32, physical_dma_buffer : &u32, descriptor_count: u32) ->Vec<HbaPhysicalRegionDescriptorTableEntry>{
         let mut output : Vec<HbaPhysicalRegionDescriptorTableEntry> = Vec::<HbaPhysicalRegionDescriptorTableEntry>::new();
-        return output;
 
+        for i in 0..descriptor_count{
+            info!("dma_buffer is at {:p}", physical_dma_buffer);
+            let remaining_count = byte_count - (i * 4096);
+            let mut entry_byte_count = 4096 -1;
+            if remaining_count < 4096{
+                entry_byte_count = remaining_count -1;
+            }
+            let new_entry = HbaPhysicalRegionDescriptorTableEntry{
+                dataBaseAddress: physical_dma_buffer + i * 4096,
+                dataBaseAddressUpper: 0,
+                reserved1: 0,
+                rest: entry_byte_count <<10,
+            };
+            output.push(new_entry);
+        }
+        output
     }
 
 
