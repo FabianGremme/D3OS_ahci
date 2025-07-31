@@ -4,7 +4,8 @@ use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
 use core::any::Any;
-use core::ptr::null;
+use core::ptr;
+use core::ptr::{addr_of_mut, null};
 use log::info;
 use pci_types::{BaseClass, EndpointHeader, SubClass};
 use spin::RwLock;
@@ -117,7 +118,7 @@ struct HbaCommandHeader {
     uint8_t reserved1: 1;
     uint8_t portMultiplierPort: 4;
 
-     physicalRegionDescriptorTableLength: u16,
+    physicalRegionDescriptorTableLength: u16,
 
     // DWORD 1
     physicalRegionDescriptorByteCount: u32,
@@ -135,7 +136,7 @@ struct HbaCommandHeader {
 #[derive(Debug, Clone, Copy)]
 struct HbaCommandTableHeader {
     // DWORD 0
-    first: u32,//ReadWrite<u32, D0::Register>,
+    first: u32, //ReadWrite<u32, D0::Register>,
 
     // DWORD 1
     physicalRegionDescriptorByteCount: u32,
@@ -372,6 +373,8 @@ pub fn init(){
         info!("pointer ist bei {:?}", pointer);
         let test_cmd_table = ahci_controller.create_combined_hba_cmd_table(1, pointer);
         info!("die erzeugte combined cmd table ist {:?}", test_cmd_table);
+        let testregion = AhciController::allocate_heap_region(40);
+        info!("testregion im heap ist {:?}", testregion);
 
     }
 
@@ -493,6 +496,8 @@ impl AhciController {
         info!("bearbeite Port Nr {:?} mit den Feldern {:?}", nr_of_port, output);
         output
     }
+
+    // muss das nicht command list header sein?
 
     unsafe fn fill_cmd_table_header(start: *mut u8) ->HbaCommandTableHeader{
         let dword0 = start as *mut u32;
@@ -836,7 +841,6 @@ impl AhciController {
 
                 }
             }
-
         }
         None
 
@@ -866,7 +870,69 @@ impl AhciController {
     return info;
     }*/
 
-    pub fn read_from_device(portnr: u32,byte_count: u32, command_fis:[u8;64], atapi_command: [u8;16]){
+
+    //innerhalb der clb gibt es eine command liste
+    pub fn read_from_device(&self, portnr: u32, byte_count: u32, mut command_fis:[u8;64], atapi_command: [u8;16]) -> Option<Vec<u32>> {
+        let port = self.ports[portnr as usize];
+        let mut command_list_addr = port.commandListBaseAddress as u64 | ((port.commandListBaseAddressUpper as u64) << 32);
+        unsafe{
+            // weil ich nur bisher einen cmd_header in der Liste habe, kann ich da direkt reinschreiben
+            let mut first_cmd_header = Self::fill_cmd_table_header(command_list_addr as *mut u8);
+            //die command List besteht aus cmd_table_headern, welche selbst dann auf die command Table verweisen
+
+            // hier noch ein paar Hilfen
+            if Self::check_port_usable(port) !=true{
+                info!("ERR: Port is not usable");
+                return None;
+            }
+
+            let slot = self.find_cmd_slot(port);
+            if slot == -1{
+                info!("ERR: Slot nicht gefunden");
+                return None;
+            }
+
+            // hier soll dann der DMA Buffer impl werden
+            let mut dma_reg = AhciController::allocate_heap_region(byte_count);
+            let dma_reg_addr = dma_reg.as_mut_ptr();
+
+            //Hier fragen: müsste ich nicht einfach auch damit durchkommen?
+
+            // hier werden dann die Werte kopiert
+            // hier wird nur die command table gemacht, nicht die command lsit
+            let mut combined_cmd_table = self.create_combined_hba_cmd_table(byte_count, dma_reg_addr);
+            combined_cmd_table.cmd_table.commandFis = command_fis.clone();
+            combined_cmd_table.cmd_table.atapiCommand = atapi_command.clone();
+
+            // jetzt wird in die command list geschrieben
+
+            let mut physical_region_descriptor_table_length = byte_count / 4096;
+            if physical_region_descriptor_table_length == 0{
+                physical_region_descriptor_table_length = (byte_count / 4096) +1;
+            }
+            //nachschauen, wie ich auf diese Größen komme
+            let mut cmd_fis_len = size_of::<FisRegisterHostToDevice>() / size_of::<u32>();
+            let mut atapi = 0;
+            if atapi_command[0] != 0{
+                atapi = 1;
+            }
+            // teste ob addr_of_mut funktioniert
+            let cmd_table_base_addr: u64 = addr_of_mut!(combined_cmd_table).addr() as u64;
+            let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
+            let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
+
+            //alles zu dem first zusammenfügen (atapi, cmd_fis_len und prdt_len)
+            // teste ob first als binary richtig ausgefüllt wird
+            let combined = (physical_region_descriptor_table_length << 16) as u32 | ( atapi << 5) as u32 | cmd_fis_len as u32;
+            first_cmd_header.first = combined;
+
+            first_cmd_header.commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
+            first_cmd_header.commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
+
+            // hier wären noch ein paar Fehlerabfragen
+
+            Some(dma_reg)
+        }
 
     }
 
@@ -877,16 +943,20 @@ impl AhciController {
     //suche den richtigen Port und richtige command list
     auto &memoryService = Kernel::Service::getService<Kernel::MemoryService>();
     auto &port = registers->ports[portNumber];
-    auto commandList = virtualCommandLists[portNumber];
 
+    // in seiner impl hat er eine ref zu jeder cmd liste
+    auto commandList = virtualCommandLists[portNumber];     //wie ist virtualCommandLists? // in der HBA gibt es eine Liste, in der alle command header drin sind?
+
+    //einige Sicherheitssachen
     portLocks[portNumber].acquire();
 
     if (!port.isActive()) {
         portLocks[portNumber].release();
         return nullptr;
     }
-
+    // finde den richtigen header, an den etwas geschrieben werden kann
     auto slot = findCommandSlot(portNumber);
+
     if (slot == UINT32_MAX) {
         portLocks[portNumber].release();
         return nullptr;
@@ -897,10 +967,11 @@ impl AhciController {
     auto physicalDmaAddress = memoryService.getPhysicalAddress(dmaBuffer);
 
     //copy von allen wichtigen Werten
-    autocommandTable = HbaCommandTable::createCommandTable(byteCount, physicalDmaAddress);
+    auto commandTable = HbaCommandTable::createCommandTable(byteCount, physicalDmaAddress);
     Util::Address(commandTable->commandFis).copyRange(Util::Address(commandFis), sizeof(HbaCommandTable::commandFis));
     Util::Address(commandTable->atapiCommand).copyRange(Util::Address(atapiCommand), sizeof(HbaCommandTable::atapiCommand));
 
+    // nachdem die command table fertig ist, muss noch der Header der command table richtig mit Werten befüllt werden
     auto &commandHeader = commandList[slot];
     commandHeader.clear();
     commandHeader.physicalRegionDescriptorTableLength = byteCount % BYTES_PER_DESCRIPTOR_ENTRY == 0 ? (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) : (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) + 1;
@@ -909,6 +980,7 @@ impl AhciController {
     commandHeader.atapi = atapiCommand[0] == 0 ? 0 : 1;
 
     // Issue command
+    //falls es irgendwo Probleme gibt
     if (!port.issueCommand(slot)) {
         portLocks[portNumber].release();
         delete reinterpret_cast<uint8_t*>(dmaBuffer);
@@ -916,10 +988,26 @@ impl AhciController {
         return nullptr;
     }
 
+    // am Ende soll wohl alles im dmaBuffer stehen
+    // unsicher, ob das so mit dem Typ richtig ist, oder ich da noch was machen muss
     portLocks[portNumber].release();
     delete commandTable;
     return dmaBuffer;
 }*/
+
+    //allocate memory into the heap
+    pub fn allocate_heap_region(size: u32) -> Vec<u32> {
+        let mut output = vec![0; size as usize];
+        output
+    }
+    pub fn allocate_dma_buffer(size: u32) -> Vec<u32>{
+        Self::allocate_heap_region(size)
+    }
+
+    /*void *AhciController::allocateDmaBuffer(uint32_t size) {
+    const auto dmaPages = size % Util::PAGESIZE == 0 ? (size / Util::PAGESIZE) : (size / Util::PAGESIZE) + 1;
+    return Kernel::Service::getService<Kernel::MemoryService>().mapIO(dmaPages);
+    }*/
 
     pub fn create_combined_hba_cmd_table(&self, byte_count: u32, physical_dma_buffer : *mut u32) ->combined_HBA_CommandTable{
         let cmd_table = self.create_hba_cmd_table();
@@ -936,8 +1024,6 @@ impl AhciController {
             cmd_table,
             physicalRegionDescriptorTable: cmd_vec,
         }
-
-
     }
     pub fn create_hba_cmd_table(&self)->HbaCommandTable{
         // füllt nur mit 0 auf, weil das später anders reinkopiert wird
@@ -960,7 +1046,7 @@ impl AhciController {
                 }
                 let new_entry = HbaPhysicalRegionDescriptorTableEntry{
                     dataBaseAddress: physical_dma_buffer.offset((i * 4096) as isize),
-                    dataBaseAddressUpper: core::ptr::null::<u32>().cast_mut(),
+                    dataBaseAddressUpper: null::<u32>().cast_mut(),
                     reserved1: 0,
                     rest: entry_byte_count <<10,
                 };
@@ -979,13 +1065,15 @@ impl AhciController {
     // hier wird die gesamte größe fürs Mapping berechnet (noch zu tun?)
     auto tableSize = sizeof(commandFis) + sizeof(atapiCommand) + sizeof(reserved) + descriptorCount * sizeof(HbaPhysicalRegionDescriptorTableEntry);
     auto tablePages = tableSize % Util::PAGESIZE == 0 ? (tableSize / Util::PAGESIZE) : (tableSize / Util::PAGESIZE) + 1;
+
+    // an Addr für command table wird das Struct gesetzt (ist das nicht schon so impl?)
     auto commandTable = reinterpret_cast<HbaCommandTable>(memoryService.mapIO(tablePages));
     Util::Address(commandTable).setRange(0, tableSize);
 
     #for (uint32_t i = 0; i < descriptorCount; i++) {
        # auto &entry = commandTable->physicalRegionDescriptorTable[i];
 
-         #uint32_t remainingBytes = byteCount - (i * BYTES_PER_DESCRIPTOR_ENTRY);
+        #uint32_t remainingBytes = byteCount - (i * BYTES_PER_DESCRIPTOR_ENTRY);
         #entry.dataBaseAddress = reinterpret_cast<uint32_t>(physicalDmaBuffer) + i * BYTES_PER_DESCRIPTOR_ENTRY;
         #entry.dataByteCount = (remainingBytes < BYTES_PER_DESCRIPTOR_ENTRY ? remainingBytes : BYTES_PER_DESCRIPTOR_ENTRY) - 1;
     }
@@ -1019,8 +1107,7 @@ impl AhciController {
 //  read from device impl
     // alloc vom dma Speicher machen
     // create command table impl
-        //schauen, wo der dma buffer liegt
-        //schauen, ob ich das noch mappen muss
+        // fragen, ob das region mapping noch gemacht werden muss
     // verstehen, wie der dma buffer den Inhalt bekommt
 // verstehen, wie man von read from device in das struct kommt
 
