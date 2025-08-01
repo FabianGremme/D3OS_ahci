@@ -846,6 +846,47 @@ impl AhciController {
 
     }
 
+    // fis steht für frame information structure
+
+    pub fn identify_device(&self, portnr: u32) -> DeviceInfo{
+        let mut command_fis = [0u8;64];
+        let mut atapi_cmd = [0u8;16];
+
+        //prepare the host to device fis (muss das nicht mehr gesendet werden??)
+        let mut host_to_device_fis = FisRegisterHostToDevice{
+            typ: 39,
+            combined: 0,
+            command: 1,
+            featureLow: 0,
+            lba0: 0,
+            lba1: 0,
+            lba2: 0,
+            device: 0,
+            lba3: 0,
+            lba4: 0,
+            lba5: 0,
+            featureHigh: 0,
+            countLow: 0,
+            countHigh: 0,
+            isochronousCommandCompletion: 0,
+            control: 0,
+            reserved2: 0,
+        };
+        let port = self.ports[portnr as usize];
+        if port.signature == 257{                           //port signature if it is an ata port
+            host_to_device_fis.command = 236;               //identification code for ata
+        }else{
+            host_to_device_fis.command = 161;               //identification code for atapi
+        }
+
+        let mut info = self.read_from_device(portnr,512, command_fis, atapi_cmd).unwrap();
+        let mut info_ptr = addr_of_mut!(info).addr();
+        let mut output = info_ptr as *mut DeviceInfo;
+        unsafe {
+            output.read()
+        }
+    }
+
     //Befehl für identify device:
     /*AhciController::DeviceInfo* AhciController::identifyDevice(uint32_t portNumber) {
     uint8_t commandFis[64]{};
