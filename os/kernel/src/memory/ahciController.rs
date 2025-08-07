@@ -376,6 +376,9 @@ pub fn init(){
         let testregion = AhciController::allocate_heap_region(40);
         info!("testregion im heap ist {:?}", testregion);
 
+        let id_device = ahci_controller.identify_device(0);
+        info!("id device is {:?}", id_device);
+
     }
 
 
@@ -1146,8 +1149,8 @@ impl AhciController {
 
 //device erkennung impl
 //  read from device impl
-    // alloc vom dma Speicher machen
-    // create command table impl
+    // alloc vom dma Speicher machen (fertig)
+    // create command table impl (fertig)
         // fragen, ob das region mapping noch gemacht werden muss
     // verstehen, wie der dma buffer den Inhalt bekommt
 // verstehen, wie man von read from device in das struct kommt
