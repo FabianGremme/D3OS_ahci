@@ -1,5 +1,6 @@
 use alloc::alloc::alloc_zeroed;
 use alloc::boxed::{Box};
+use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
@@ -379,6 +380,14 @@ pub fn init(){
         let id_device = ahci_controller.identify_device(0);
         info!("id device is {:?}", id_device);
 
+
+        //let model_nr = id_device.clone();
+        let serial_nr = id_device.serialNumber.clone();
+        let serial_str = String::from_utf8(Vec::from(serial_nr)).unwrap();
+        let firmware_rev = id_device.firmwareRevision.clone();
+        let firmware_str = String::from_utf8(Vec::from(firmware_rev)).unwrap();
+
+        info!("die neue serial nr ist {}, und die neue firmware ist {}", serial_str, firmware_str);
     }
 
 
@@ -856,10 +865,11 @@ impl AhciController {
         let mut atapi_cmd = [0u8;16];
 
         //prepare the host to device fis (muss das nicht mehr gesendet werden??)
+        // das muss noch in den command fis gelegt werden
         let mut host_to_device_fis = FisRegisterHostToDevice{
             typ: 39,
-            combined: 0,
-            command: 1,
+            combined: 1,
+            command: 0,
             featureLow: 0,
             lba0: 0,
             lba1: 0,
@@ -875,12 +885,23 @@ impl AhciController {
             control: 0,
             reserved2: 0,
         };
+
         let port = self.ports[portnr as usize];
         if port.signature == 257{                           //port signature if it is an ata port
             host_to_device_fis.command = 236;               //identification code for ata
         }else{
             host_to_device_fis.command = 161;               //identification code for atapi
         }
+        info!("found port is {:?}", port);
+        info!("host_to_device_fis is {:?}", host_to_device_fis);
+        //info!("old command fis is now {:?}", command_fis);
+        // copy the info from the struct into the memory region
+        unsafe {
+            let ptr = command_fis.as_mut_ptr();
+            let src = &host_to_device_fis as *const FisRegisterHostToDevice as *const u8;
+            ptr::copy_nonoverlapping(src, ptr, size_of::<FisRegisterHostToDevice>());
+        }
+        //info!("new command fis is now {:?}", command_fis);
 
         let mut info = self.read_from_device(portnr,512, command_fis, atapi_cmd).unwrap();
         let mut info_ptr = addr_of_mut!(info).addr();
@@ -918,6 +939,7 @@ impl AhciController {
     //innerhalb der clb gibt es eine command liste
     pub fn read_from_device(&self, portnr: u32, byte_count: u32, mut command_fis:[u8;64], atapi_command: [u8;16]) -> Option<Vec<u32>> {
         let port = self.ports[portnr as usize];
+        info!("port in read from device ist {:?}", port);
         let mut command_list_addr = port.commandListBaseAddress as u64 | ((port.commandListBaseAddressUpper as u64) << 32);
         unsafe{
             // weil ich nur bisher einen cmd_header in der Liste habe, kann ich da direkt reinschreiben
