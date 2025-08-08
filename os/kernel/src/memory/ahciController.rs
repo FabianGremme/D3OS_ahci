@@ -199,7 +199,7 @@ struct DeviceInfo {
     buf_size: u16,              /* 512 byte increments; 0 = not specified */
     ecc_bytes: u16,             /* for r/w long cmds; 0 = not specified */
     firmwareRevision: [u8;8],    /* 0 = not specified */
-    Port: [u8;40],              /* 0 = not specified */
+    model: [u8;40],              /* 0 = not specified */
     multi_count: u16,           /* Multiple Count */
     dword_io: u16,              /* 0=not_implemented; 1=implemented */
     capability1: u16,           /* vendor unique */
@@ -937,7 +937,9 @@ impl AhciController {
 
 
     //innerhalb der clb gibt es eine command liste
-    pub fn read_from_device(&self, portnr: u32, byte_count: u32, mut command_fis:[u8;64], atapi_command: [u8;16]) -> Option<Vec<u32>> {
+    pub fn read_from_device(&self, portnr: u32, byte_count: u32, mut command_fis:[u8;64], atapi_command: [u8;16]) -> Option<PhysFrameRange> {
+
+        //info!("input is portnr{}, byte_count {}, command_fis{:?}, atapi_command{:?}", portnr, byte_count, command_fis, atapi_command);
         let port = self.ports[portnr as usize];
         info!("port in read from device ist {:?}", port);
         let mut command_list_addr = port.commandListBaseAddress as u64 | ((port.commandListBaseAddressUpper as u64) << 32);
@@ -945,6 +947,7 @@ impl AhciController {
             // weil ich nur bisher einen cmd_header in der Liste habe, kann ich da direkt reinschreiben
             let mut first_cmd_header = Self::fill_cmd_table_header(command_list_addr as *mut u8);
             //die command List besteht aus cmd_table_headern, welche selbst dann auf die command Table verweisen
+            info!("first_cmd_header is {:?}", first_cmd_header);
 
             // hier noch ein paar Hilfen
             if Self::check_port_usable(port) !=true{
@@ -960,12 +963,13 @@ impl AhciController {
 
             // hier soll dann der DMA Buffer impl werden
             let mut dma_reg = AhciController::allocate_heap_region(byte_count);
-            let dma_reg_addr = dma_reg.as_mut_ptr();
+            let dma_reg_addr = dma_reg.start.start_address().as_u64() as * mut u32;
 
             //Hier fragen: müsste ich nicht einfach auch damit durchkommen?
+            // muss hier noch ein copy hin, oder wie genau?
 
             // hier werden dann die Werte kopiert
-            // hier wird nur die command table gemacht, nicht die command lsit
+            // hier wird nur die command table gemacht, nicht die command list
             let mut combined_cmd_table = self.create_combined_hba_cmd_table(byte_count, dma_reg_addr);
             combined_cmd_table.cmd_table.commandFis = command_fis.clone();
             combined_cmd_table.cmd_table.atapiCommand = atapi_command.clone();
@@ -976,12 +980,14 @@ impl AhciController {
             if physical_region_descriptor_table_length == 0{
                 physical_region_descriptor_table_length = (byte_count / 4096) +1;
             }
+
             //nachschauen, wie ich auf diese Größen komme
             let mut cmd_fis_len = size_of::<FisRegisterHostToDevice>() / size_of::<u32>();
             let mut atapi = 0;
             if atapi_command[0] != 0{
                 atapi = 1;
             }
+
             // teste ob addr_of_mut funktioniert
             let cmd_table_base_addr: u64 = addr_of_mut!(combined_cmd_table).addr() as u64;
             let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
@@ -1045,8 +1051,8 @@ impl AhciController {
     commandHeader.commandTableDescriptorBaseAddress = reinterpret_cast<uint32_t>(memoryService.getPhysicalAddress(commandTable));
     commandHeader.atapi = atapiCommand[0] == 0 ? 0 : 1;
 
-    // Issue command
-    //falls es irgendwo Probleme gibt
+    // achtung: hier muss weiter gecoded werden
+    // issue command muss noch durchgeführt werden
     if (!port.issueCommand(slot)) {
         portLocks[portNumber].release();
         delete reinterpret_cast<uint8_t*>(dmaBuffer);
@@ -1062,11 +1068,18 @@ impl AhciController {
 }*/
 
     //allocate memory into the heap
-    pub fn allocate_heap_region(size: u32) -> Vec<u32> {
-        let mut output = vec![0; size as usize];
+
+    //probleme
+    pub fn allocate_heap_region(size: u32) -> PhysFrameRange {
+        let mut frame_count = size/4096;
+        if frame_count == 0{
+            frame_count +=1;
+        }
+
+        let mut output = frames::alloc(frame_count as usize);
         output
     }
-    pub fn allocate_dma_buffer(size: u32) -> Vec<u32>{
+    pub fn allocate_dma_buffer(size: u32) -> PhysFrameRange{
         Self::allocate_heap_region(size)
     }
 
