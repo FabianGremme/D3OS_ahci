@@ -940,7 +940,7 @@ impl AhciController {
     pub fn read_from_device(&self, portnr: u32, byte_count: u32, mut command_fis:[u8;64], atapi_command: [u8;16]) -> Option<PhysFrameRange> {
 
         //info!("input is portnr{}, byte_count {}, command_fis{:?}, atapi_command{:?}", portnr, byte_count, command_fis, atapi_command);
-        let port = self.ports[portnr as usize];
+        let mut port = self.ports[portnr as usize];
         info!("port in read from device ist {:?}", port);
         let mut command_list_addr = port.commandListBaseAddress as u64 | ((port.commandListBaseAddressUpper as u64) << 32);
         unsafe{
@@ -1002,6 +1002,7 @@ impl AhciController {
             first_cmd_header.commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
 
             // hier wären noch ein paar Fehlerabfragen
+            let success = port.issueCommand(slot as u32);
 
             Some(dma_reg)
         }
@@ -1159,9 +1160,88 @@ impl AhciController {
     #return commandTable;
     }*/
 
+}
 
 
+/*
+bool AhciController::HbaPort::issueCommand(uint8_t slot) {
+    // Wait while device is busy
+    uint32_t timeout = Util::Time::Timestamp::getSystemTime().toMilliseconds() + COMMAND_TIMEOUT;
+    while (taskFileData & (BUSY | DATA_TRANSFER_REQUESTED)) {
+        if (Util::Time::Timestamp::getSystemTime().toMilliseconds() >= timeout) {
+            return false;
+        }
 
+        Util::Async::Thread::yield();
+    }
+
+    // Issue command
+    commandIssue = 1 << slot;
+
+    // Wait for command completion
+    timeout = Util::Time::Timestamp::getSystemTime().toMilliseconds() + COMMAND_TIMEOUT;
+    while (true) {
+        if (!(commandIssue & (1 << slot))) {
+            break;
+        }
+
+        if (interruptStatus & TASK_FILE_ERROR) {
+            return false;
+        }
+
+        if (Util::Time::Timestamp::getSystemTime().toMilliseconds() >= timeout) {
+            return false;
+        }
+
+        Util::Async::Thread::yield();
+    }
+
+    return true;
+}
+
+ */
+
+#[allow(warnings)]
+impl HbaPort {
+    pub fn issueCommand(&mut self, slot:u32)->bool{
+        // Wait while device is busy
+        const COMMAND_TIMEOUT: isize = 10000;
+        const BUSY: u32 = 128;
+        const DATA_TRANSFER_REQUESTED: u32 = 8;
+        const TASK_FILE_ERROR: u32 = 1 <<30;
+        let mut timeout = sys_get_system_time() + COMMAND_TIMEOUT;
+
+        while (self.taskFileData & (BUSY | DATA_TRANSFER_REQUESTED)) >0 {
+            if (sys_get_system_time() >= timeout) {
+                return false;
+            }
+            //gibt es thread yield?
+            //Async::Thread::yield();
+        }
+
+        // Issue command
+        self.commandIssue = 1 << slot;
+
+        // Wait for command completion
+        timeout = sys_get_system_time() + COMMAND_TIMEOUT;
+        while true {
+            if !((self.commandIssue & (1 << slot)) >0){
+                break;
+            }
+
+            if (self.interruptStatus & TASK_FILE_ERROR) > 0 {
+                return false;
+            }
+
+            if (sys_get_system_time() >= timeout) {
+                return false;
+            }
+
+            //Util::Async::Thread::yield();
+        }
+
+        true
+    }
 }
 
 // Todo:
