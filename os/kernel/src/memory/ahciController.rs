@@ -352,22 +352,33 @@ pub fn init(){
     unsafe {
         let mut ahci_controller = Arc::new(AhciController::new(device));
         info!("der ahci controller hat die hba: {:?}", ahci_controller.hba_regs);
+        info!("check, if bios handoff needed");
         ahci_controller.check_bios_handoff();
+        info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
+        info!("check if device has ahci mode enabled");
         ahci_controller.check_ahci_mode_enabled();
+        info!("check if device has only ahci mode enabled");
         ahci_controller.check_only_ahci();
+        info!("check if 64 bit addresses are supported");
         ahci_controller.check_64_bit_addr_supported();
+        info!("check nr of available ports using capabilities");
         ahci_controller.check_cap_nr_of_ports();
+        info!("check nr of available command slots");
         ahci_controller.check_nr_of_command_slots();
+        info!("map all components");
         ahci_controller.map_command_components();
         //info!("teste die Funktion um mehrere Bitfelder auszulesen");
         //let testoutput = ahci_controller.general_bitlen_reader(57105, 7, 5); // hier sollte 30 rauskommen, das passt
         //info!("testoutput ist {}", testoutput);
 
-        info!("before cmd");
-        ahci_controller.test_ports_command_engine();
-        info!("after cmd");
+        //info!("before cmd");
+        //ahci_controller.test_ports_command_engine();
+        //info!("after cmd");
         ahci_controller.find_slot_all_ports();
+        info!("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nidentify the current device");
+        let id_device = ahci_controller.identify_device(0);
+        info!("id device is {:?}", id_device);
 
         /*let mut var:Box<u32> = Box::new(4000);
         info!("size of var ist {:?}", size_of_val(&var));
@@ -378,8 +389,7 @@ pub fn init(){
         let testregion = AhciController::allocate_heap_region(40);
         info!("testregion im heap ist {:?}", testregion);
         */
-        let id_device = ahci_controller.identify_device(0);
-        info!("id device is {:?}", id_device);
+
 
 
         //let model_nr = id_device.clone();
@@ -439,6 +449,7 @@ impl AhciController {
 
     unsafe fn init_ports(ahci_base_addr: *mut u8, hba_ports: u32) ->Vec<HbaPort>{
         //aus der hba ports variable muss erst mal die Anzahl der Ports bestimmt werden. Dazu muss die Anzahl der 1 in der Binaerform gezaehlt werden.
+        info!("initialisiere die ports");
         let mut port_nr = 0;
         let mut calc = hba_ports;
         while calc != 0{
@@ -765,11 +776,13 @@ impl AhciController {
     }
 
     pub fn map_command_components(&self){
-        info!("self.ports ist: {:?}", self.ports);
+        //info!("self.ports ist: {:?}", self.ports);
         for port in &self.ports{
             if Self::check_port_usable(port.clone()){
                 self.map_command_for_port(*port);
+                info!("port fertig gemappt")
             }
+
 
         }
 
@@ -789,7 +802,7 @@ impl AhciController {
         //baue die Adresse für die received FIS
         let received_fis: u64 = port.fisBaseAddress as u64 | ((port.fisBaseAddressUpper as u64) << 32);
         let size_received_fis = 256;
-        info!("die Addressen sind: cmd_header: {:x}, received_fis: {:x}", first_cmd_header_addr, received_fis);
+        //info!("die Addressen sind: cmd_header: {:x}, received_fis: {:x}", first_cmd_header_addr, received_fis);
         unsafe {
             //falls zwei memory spaces auf je kleiner als eine Seite sind, wird nach den Startadressen abhängig gemacht,
             // ob sie spaces sich die Page teilen, oder separate Pages erhalten
@@ -804,15 +817,15 @@ impl AhciController {
 
             //test if the cmd_List has a
             let cmd_header1 = Self::get_cmd_table_header(first_cmd_header_addr as *mut u8);
-            info!("the first command header struct has the following values: {:?}", cmd_header1);
+            //info!("the first command header struct has the following values: {:?}", cmd_header1);
             // hier werden die einzelnen Werte von cmd_header1 wie prdt, etc ausgeschrieben
             let full_register = cmd_header1.first;
             let prdt = AhciController::general_bitlen_reader(full_register, 16, 16);
-            info!("prdt ist {:?}", prdt);
+            //info!("prdt ist {:?}", prdt);
 
             //map the first command table with the info of the first command header
             let first_cmd_table_addr = cmd_header1.commandTableDescriptorBaseAddress as u64 | ((cmd_header1.commandTableDescriptorBaseAddressUpper as u64)<<32);
-            info!("the first_cmd_table_addr is {:x}", first_cmd_table_addr);
+            //info!("the first_cmd_table_addr is {:x}", first_cmd_table_addr);
             // das ist die Größe aus der combined command table mit 8 Inhalten
             let cmd_table_size = 256;
             Self::map_general(first_cmd_table_addr, PAGE_SIZE as u64, "cmd_tbl");
@@ -825,19 +838,14 @@ impl AhciController {
         }
 
     }
-
+    //Diese Funktion testet, ob start und stop von command engine läuft
     pub fn test_ports_command_engine(&self){
         for port in &self.ports{
             if Self::check_port_usable(port.clone()){
-                info!("befor single start");
                 self.start_cmd_engine(*port);
-                info!("after single start");
                 self.stop_cmd_engine(*port);
-                info!("after single stop");
             }
-
         }
-
     }
     pub fn start_cmd_engine(&self, mut port: HbaPort){
         info!("port ist nun {:?}", port);
@@ -884,7 +892,6 @@ impl AhciController {
             }
         }
         None
-
     }
 
     // fis steht für frame information structure
@@ -930,7 +937,7 @@ impl AhciController {
             let src = &host_to_device_fis as *const FisRegisterHostToDevice as *const u8;
             ptr::copy_nonoverlapping(src, ptr, size_of::<FisRegisterHostToDevice>());
         }
-        //info!("new command fis is now {:?}", command_fis);
+        info!("new command fis is now {:?}\n\n\n\n\n\n\n", command_fis);
 
         let mut info = self.read_from_device(portnr,512, command_fis, atapi_cmd).unwrap();
         let mut info_ptr = addr_of_mut!(info).addr();
@@ -977,7 +984,7 @@ impl AhciController {
             // weil ich nur bisher einen cmd_header in der Liste habe, kann ich da direkt reinschreiben
             let mut first_cmd_header = Self::get_cmd_table_header(command_list_addr as *mut u8);
             //die command List besteht aus cmd_table_headern, welche selbst dann auf die command Table verweisen
-            info!("first_cmd_header is {:?}", first_cmd_header);
+            info!("first_cmd_header in read from device is {:?}", first_cmd_header);
 
             // hier noch ein paar Hilfen
             if Self::check_port_usable(port) !=true{
@@ -1019,10 +1026,12 @@ impl AhciController {
             }
 
             // teste ob addr_of_mut funktioniert
+            // hier könnte ein Fehler sein?
+            // muss das struct an die genaue addressse gesetzt werden?
             let cmd_table_base_addr: u64 = addr_of_mut!(combined_cmd_table).addr() as u64;
             let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
             let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
-            info!("die addr sind: {:x} und upper {:x}", lower_cmd_table_base_addr, upper_cmd_table_base_addr);
+            info!("die addr sind: {} und upper {}", lower_cmd_table_base_addr, upper_cmd_table_base_addr);
             //VMA DeviceMemory, [0xdef6000; 0xdef7000], #pages: 1, tag: "cmd_tbl-", aber die addressen passen nicht
             //lower ist 0x1f90108 upper ist 0
 
@@ -1036,6 +1045,7 @@ impl AhciController {
 
             first_cmd_header.commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
             first_cmd_header.commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
+            // warum hat sich hier etwas verändert??
             info!("first_cmd_header ist {:?}",first_cmd_header);
 
             let mut output = dma_reg_addr as *mut DeviceInfo;
@@ -1043,7 +1053,7 @@ impl AhciController {
 
             // hier wären noch ein paar Fehlerabfragen
             let success = port.issueCommand(slot as u32);
-            info!("success ist {}", success);
+            info!("success ist {}\n\n\n\n\n\n\n\n\n\n", success);
             //aktuell ist success = false, was schlecht ist
 
             Some(dma_reg)
@@ -1051,7 +1061,6 @@ impl AhciController {
 
     }
 
-    //vorher muss die read from device implementiert werden:
     /*
     void* AhciController::readFromDevice(uint32_t portNumber, uint32_t byteCount, const uint8_t commandFis[64], const uint8_t atapiCommand[16]) {
 
@@ -1077,7 +1086,6 @@ impl AhciController {
         return nullptr;
     }
 
-    //wie funktioniert dma buffer?
     auto dmaBuffer = allocateDmaBuffer(byteCount);
     auto physicalDmaAddress = memoryService.getPhysicalAddress(dmaBuffer);
 
@@ -1179,6 +1187,7 @@ impl AhciController {
     }
 
     /*AhciController::HbaCommandTable * AhciController::HbaCommandTable::createCommandTable(uint32_t byteCount, void physicalDmaBuffer) {
+
     #auto &memoryService = Kernel::Service::getService<Kernel::MemoryService>();
 
     //also dividieren und falls 0, dann ein mehr?
@@ -1258,10 +1267,7 @@ impl HbaPort {
                 info!("system timeout 1");
                 return false;
             }
-            //gibt es thread yield?
-            // alternative benötigt
             scheduler().switch_thread_no_interrupt();
-            //Async::Thread::yield();
         }
 
         // Issue command
@@ -1284,9 +1290,7 @@ impl HbaPort {
                 return false;
             }
             scheduler().switch_thread_no_interrupt();
-            //Util::Async::Thread::yield();
         }
-
         true
     }
 }
@@ -1303,25 +1307,17 @@ impl HbaPort {
 
 
 
-// Warum wird im HHU OS ein Fehler mit F zugeschrieben, als reset? (angelescu fragen)
-// Warum bekomme ich viele Ports mit der selben Adresse? gibt es nur einen Port, oder woran liegt das?
+// Fehler werden mit f zu geschrieben, weil das -1 repräsentiert
+// Warum bekomme ich viele Ports mit der selben Adresse? gibt es nur einen Port, oder woran liegt das?  (aktuell existiert ein Port)
 //welche Verträge hat die Uni mit Verlegern? kostenlose Bücher?
 
 
 
 //device erkennung impl
-//  read from device impl
+//  read from device impl (debugging)
     // alloc vom dma Speicher machen (fertig)
     // create command table impl (fertig)
         // fragen, ob das region mapping noch gemacht werden muss
     // verstehen, wie der dma buffer den Inhalt bekommt
 // verstehen, wie man von read from device in das struct kommt
-
-
-
-
-
-
-
-
 
