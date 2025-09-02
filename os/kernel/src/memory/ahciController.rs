@@ -1,5 +1,14 @@
+use crate::device::ide::IdeDrive;
+use crate::memory::frames::alloc;
+use crate::memory::nvmem::NfitStructureHeader;
+use crate::memory::vma::VmaType;
+use crate::memory::{MemorySpace, PAGE_SIZE, frames, pages};
+use crate::process::scheduler::Scheduler;
+use crate::storage::add_block_device;
+use crate::syscall::sys_time::{sys_get_system_time, wait_ms};
+use crate::{pci_bus, process_manager, scheduler};
 use alloc::alloc::alloc_zeroed;
-use alloc::boxed::{Box};
+use alloc::boxed::Box;
 use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
@@ -10,24 +19,15 @@ use core::ptr::{addr_of_mut, null};
 use log::info;
 use pci_types::{BaseClass, EndpointHeader, SubClass};
 use spin::RwLock;
-use x86_64::structures::paging::{Page, PageTableFlags};
+use tock_registers::interfaces::ReadWriteable;
+use tock_registers::interfaces::Readable;
+use tock_registers::interfaces::Writeable;
+use tock_registers::register_bitfields;
+use tock_registers::registers::{InMemoryRegister, ReadOnly, ReadWrite};
+use x86_64::VirtAddr;
 use x86_64::structures::paging::frame::PhysFrameRange;
 use x86_64::structures::paging::page::PageRange;
-use x86_64::VirtAddr;
-use crate::device::ide::IdeDrive;
-use crate::{pci_bus, process_manager, scheduler};
-use crate::memory::{frames, pages, MemorySpace, PAGE_SIZE};
-use crate::memory::nvmem::NfitStructureHeader;
-use crate::memory::vma::VmaType;
-use crate::storage::add_block_device;
-use tock_registers::registers::{InMemoryRegister, ReadOnly, ReadWrite};
-use tock_registers::register_bitfields;
-use tock_registers::interfaces::Writeable;
-use tock_registers::interfaces::Readable;
-use tock_registers::interfaces::ReadWriteable;
-use crate::memory::frames::alloc;
-use crate::process::scheduler::Scheduler;
-use crate::syscall::sys_time::{sys_get_system_time, wait_ms};
+use x86_64::structures::paging::{Page, PageTableFlags};
 
 const MASS_STORAGE_DEVICE: BaseClass = 0x01;
 const SATA_CONTROLLER: SubClass = 0x06;
@@ -43,65 +43,65 @@ enum BiosHandoffFlags {
     OS_OWNED_SEMAPHORE = 1 << 1,
     SMI_ON_OWNERSHIP_CHANGE = 1 << 2,
     OS_OWNERSHIP_CHANGE = 1 << 3,
-    BIOS_BUSY = 1 << 4
+    BIOS_BUSY = 1 << 4,
 }
 
 #[derive(Clone, Copy, Debug)]
 enum DeviceSignature {
-NONE = 0x00000000,
-ATA = 0x00000101,
-ATAPI = 0xeb140101,
-ENCLOSURE_POWER_MANAGEMENT_BRIDGE = 0xc33c0101,
-PORT_MULTIPLIER = 0x96690101
+    NONE = 0x00000000,
+    ATA = 0x00000101,
+    ATAPI = 0xeb140101,
+    ENCLOSURE_POWER_MANAGEMENT_BRIDGE = 0xc33c0101,
+    PORT_MULTIPLIER = 0x96690101,
 }
 
 #[allow(warnings)]
-struct AhciController{
+struct AhciController {
     hba_regs: HBARegister,
     ports: Vec<*mut HbaPort>,
 }
 #[allow(warnings)]
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
-struct HBARegister{
-     hostCapabilities: u32,
-     globalHostControl: u32,
-     interruptStatus: u32,
-     portsImplemented: u32,
-     version: u32,
-     commandCompletionCoalescingControl: u32,
-     commandCompletionCoalescingPorts: u32,
-     enclosureManagementLocation: u32,
-     enclosureManagementControlu: u32,
-     extendedHostCapabilities: u32,
-     biosHandoffControl: u32,
-     reserved: [u8;116],
-     vendorSpecific: [u8;96],
+struct HBARegister {
+    hostCapabilities: u32,
+    globalHostControl: u32,
+    interruptStatus: u32,
+    portsImplemented: u32,
+    version: u32,
+    commandCompletionCoalescingControl: u32,
+    commandCompletionCoalescingPorts: u32,
+    enclosureManagementLocation: u32,
+    enclosureManagementControlu: u32,
+    extendedHostCapabilities: u32,
+    biosHandoffControl: u32,
+    reserved: [u8; 116],
+    vendorSpecific: [u8; 96],
 }
 #[allow(warnings)]
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
 struct HbaPort {
-     commandListBaseAddress: u32,
-     commandListBaseAddressUpper: u32,
-     fisBaseAddress: u32,
-     fisBaseAddressUpper: u32,
-     interruptStatus: u32,
-     interruptEnable: u32,
-     command: u32,
-     reserved1: u32,
-     taskFileData: u32,
-     signature: u32,
-     sataStatus: u32,
-     sataControl: u32,
-     sataError: u32,
-     sataActive: u32,
-     commandIssue: u32,
-     sataNotification: u32,
-     fisBasedSwitchControl: u32,
-     deviceSleep: u32,
-     reserved2: [u32;10],
-     vendorSpecific: [u32;4],
+    commandListBaseAddress: u32,
+    commandListBaseAddressUpper: u32,
+    fisBaseAddress: u32,
+    fisBaseAddressUpper: u32,
+    interruptStatus: u32,
+    interruptEnable: u32,
+    command: u32,
+    reserved1: u32,
+    taskFileData: u32,
+    signature: u32,
+    sataStatus: u32,
+    sataControl: u32,
+    sataError: u32,
+    sataActive: u32,
+    commandIssue: u32,
+    sataNotification: u32,
+    fisBasedSwitchControl: u32,
+    deviceSleep: u32,
+    reserved2: [u32; 10],
+    vendorSpecific: [u32; 4],
 }
 
 /*
@@ -148,14 +148,13 @@ struct HbaCommandTableHeader {
     commandTableDescriptorBaseAddressUpper: u32,
 
     // DWORD 4-7
-    reserved: [u32;4],
+    reserved: [u32; 4],
 }
-
 
 //Laut Bachelorarbeit soll eine combined HBA Command Table aus einer cmd_table und 8 Einheiten der Liste entstehen
 #[allow(warnings)]
 #[derive(Debug)]
-struct combined_HBA_CommandTable{
+struct combined_HBA_CommandTable {
     cmd_table: HbaCommandTable,
     physicalRegionDescriptorTable: Vec<HbaPhysicalRegionDescriptorTableEntry>,
 }
@@ -164,10 +163,9 @@ struct combined_HBA_CommandTable{
 #[derive(Debug, Clone, Copy)]
 struct HbaPhysicalRegionDescriptorTableEntry {
     dataBaseAddress: *mut u32,
-    dataBaseAddressUpper: * mut u32,
+    dataBaseAddressUpper: *mut u32,
     reserved1: u32,
     rest: u32,
-
     //uint32_t dataByteCount: 22;
     //uint32_t reserved2: 9;
     //uint32_t interruptOnCompletion: 1;
@@ -176,133 +174,133 @@ struct HbaPhysicalRegionDescriptorTableEntry {
 #[repr(C, packed)]
 #[derive(Debug)]
 pub(crate) struct HbaCommandTable {
-    commandFis: [u8;64],
-    atapiCommand: [u8;16],
-    reserved: [u8;48],
+    commandFis: [u8; 64],
+    atapiCommand: [u8; 16],
+    reserved: [u8; 48],
 }
 
 #[allow(warnings)]
 #[repr(C, packed)]
 #[derive(Debug)]
 struct DeviceInfo {
-    config: u16,                /* lots of obsolete bit flags */
-    cyls: u16,                  /* obsolete */
-    reserved2: u16,             /* special config */
-    heads: u16,                 /* "physical" heads */
-    track_bytes: u16,           /* unformatted bytes per track */
-    bytesPerSector: u16,        /* unformatted bytes per sector */
-    sectors: u16,               /* "physical" sectors per track */
-    vendor0: u16,               /* vendor unique */
-    vendor1: u16,               /* vendor unique */
-    vendor2: u16,               /* vendor unique */
-    serialNumber: [u8;20],       /* 0 = not specified */
+    config: u16,            /* lots of obsolete bit flags */
+    cyls: u16,              /* obsolete */
+    reserved2: u16,         /* special config */
+    heads: u16,             /* "physical" heads */
+    track_bytes: u16,       /* unformatted bytes per track */
+    bytesPerSector: u16,    /* unformatted bytes per sector */
+    sectors: u16,           /* "physical" sectors per track */
+    vendor0: u16,           /* vendor unique */
+    vendor1: u16,           /* vendor unique */
+    vendor2: u16,           /* vendor unique */
+    serialNumber: [u8; 20], /* 0 = not specified */
     buf_type: u16,
-    buf_size: u16,              /* 512 byte increments; 0 = not specified */
-    ecc_bytes: u16,             /* for r/w long cmds; 0 = not specified */
-    firmwareRevision: [u8;8],    /* 0 = not specified */
-    model: [u8;40],              /* 0 = not specified */
-    multi_count: u16,           /* Multiple Count */
-    dword_io: u16,              /* 0=not_implemented; 1=implemented */
-    capability1: u16,           /* vendor unique */
-    capability2: u16,           /* bits 0:DMA 1:LBA 2:IORDYsw 3:IORDYsup word: 50 */
-    vendor5: u8,                /* vendor unique */
-    tPIO: u8,                   /* 0 = slow, 1 = medium, 2 = fast */
-    vendor6: u8,                /* vendor unique */
-    tDMA: u8,                   /* 0 = slow, 1 = medium, 2 = fast */
-    field_valid: u16,           /* bits 0:cur_ok 1:eide_ok */
-    cur_cyls: u16,              /* logical cylinders */
-    cur_heads: u16,             /* logical heads word 55 */
-    cur_sectors: u16,           /* logical sectors per track */
-    cur_capacity0: u16,         /* logical total sectors on drive */
-    cur_capacity1: u16,         /* (2 words, misaligned int)     */
-    multsect: u8,               /* current multiple sector count */
-    multsect_valid: u8,         /* when (bit0==1) multsect is ok */
-    lbaCapacity: u32,           /* total number of sectors */
-    dma_1word: u16,             /* single-word dma info */
-    dma_mword: u16,             /* multiple-word dma info */
-    eide_pio_modes: u16,        /* bits 0:mode3 1:mode4 */
-    eide_dma_min: u16,          /* min mword dma cycle time (ns) */
-    eide_dma_time: u16,         /* recommended mword dma cycle time (ns) */
-    eide_pio: u16,              /* min cycle time (ns), no IORDY */
-    eide_pio_iordy: u16,        /* min cycle time (ns), with IORDY */
-    words69_70: [u16;2],        /* reserved words 69-70 */
-    words71_74: [u16;4],        /* reserved words 71-74 */
+    buf_size: u16,             /* 512 byte increments; 0 = not specified */
+    ecc_bytes: u16,            /* for r/w long cmds; 0 = not specified */
+    firmwareRevision: [u8; 8], /* 0 = not specified */
+    model: [u8; 40],           /* 0 = not specified */
+    multi_count: u16,          /* Multiple Count */
+    dword_io: u16,             /* 0=not_implemented; 1=implemented */
+    capability1: u16,          /* vendor unique */
+    capability2: u16,          /* bits 0:DMA 1:LBA 2:IORDYsw 3:IORDYsup word: 50 */
+    vendor5: u8,               /* vendor unique */
+    tPIO: u8,                  /* 0 = slow, 1 = medium, 2 = fast */
+    vendor6: u8,               /* vendor unique */
+    tDMA: u8,                  /* 0 = slow, 1 = medium, 2 = fast */
+    field_valid: u16,          /* bits 0:cur_ok 1:eide_ok */
+    cur_cyls: u16,             /* logical cylinders */
+    cur_heads: u16,            /* logical heads word 55 */
+    cur_sectors: u16,          /* logical sectors per track */
+    cur_capacity0: u16,        /* logical total sectors on drive */
+    cur_capacity1: u16,        /* (2 words, misaligned int)     */
+    multsect: u8,              /* current multiple sector count */
+    multsect_valid: u8,        /* when (bit0==1) multsect is ok */
+    lbaCapacity: u32,          /* total number of sectors */
+    dma_1word: u16,            /* single-word dma info */
+    dma_mword: u16,            /* multiple-word dma info */
+    eide_pio_modes: u16,       /* bits 0:mode3 1:mode4 */
+    eide_dma_min: u16,         /* min mword dma cycle time (ns) */
+    eide_dma_time: u16,        /* recommended mword dma cycle time (ns) */
+    eide_pio: u16,             /* min cycle time (ns), no IORDY */
+    eide_pio_iordy: u16,       /* min cycle time (ns), with IORDY */
+    words69_70: [u16; 2],      /* reserved words 69-70 */
+    words71_74: [u16; 4],      /* reserved words 71-74 */
     queue_depth: u16,
-    sata_capability: u16,       /* SATA Capabilities word 76 */
-    sata_additional: u16,       /* Additional Capabilities */
-    sata_supported: u16,        /* SATA Features supported */
-    features_enabled: u16,      /* SATA features enabled */
-    major_rev_num: u16,         /* Major rev number word 80 */
-    minor_rev_num: u16,         /* Minor revision number */
-    command_set_1: u16,         /* bits 0: Smart, 1: Security, 2: Removable, 3: PM */
-    command_set_2: u16,         /* bits 14:Smart Enabled 13:0 zero */
-    cfsse: u16,                 /* command set-feature supported extensions */
-    cfs_enable_1: u16,          /* command set-feature enabled */
-    cfs_enable_2: u16,          /* command set-feature enabled */
-    csf_default: u16,           /* command set-feature default */
+    sata_capability: u16,  /* SATA Capabilities word 76 */
+    sata_additional: u16,  /* Additional Capabilities */
+    sata_supported: u16,   /* SATA Features supported */
+    features_enabled: u16, /* SATA features enabled */
+    major_rev_num: u16,    /* Major rev number word 80 */
+    minor_rev_num: u16,    /* Minor revision number */
+    command_set_1: u16,    /* bits 0: Smart, 1: Security, 2: Removable, 3: PM */
+    command_set_2: u16,    /* bits 14:Smart Enabled 13:0 zero */
+    cfsse: u16,            /* command set-feature supported extensions */
+    cfs_enable_1: u16,     /* command set-feature enabled */
+    cfs_enable_2: u16,     /* command set-feature enabled */
+    csf_default: u16,      /* command set-feature default */
     dma_ultra: u16,
-    word89: u16,                /* reserved (word 89) */
-    word90: u16,                /* reserved (word 90) */
-    CurAPMvalues: u16,          /* current APM values */
-    word92: u16,                /* reserved (word 92) */
-    comreset: u16,              /* should be cleared to 0 */
-    accoustic: u16,             /*  accoustic management */
-    min_req_sz: u16,            /* Stream minimum required size */
-    transfer_time_dma: u16,     /* Streaming Transfer Time-DMA */
-    access_latency: u16,        /* Streaming access latency-DMA & PIO WORD 97*/
-    perf_granularity: u32,      /* Streaming performance granularity */
-    total_usr_sectors: [u32;2],       /* Total number of user addressable sectors */
-    transfer_time_pio: u16,     /* Streaming Transfer time PIO */
-    reserved105: u16,           /* Word 105 */
-    sector_sz: u16,             /* Physical Sector size / Logical sector size */
-    inter_seek_delay: u16,      /* In microseconds */
-    words108_116: [u16;9],            /* Reserved */
-    words_per_sector: u32,      /* words per logical sectors */
-    supported_settings: u16,    /* continued from words 82-84 */
-    command_set_3: u16,         /* continued from words 85-87 */
-    words121_126: [u16;6],            /* reserved words 121-126 */
-    word127: u16,               /* reserved (word 127) */
-    security_status: u16,       /* device lock function
-                                         * 15:9   reserved
-                                         * 8   security level 1:max 0:high
-                                         * 7:6   reserved
-                                         * 5   enhanced erase
-                                         * 4   expire
-                                         * 3   frozen
-                                         * 2   locked
-                                         * 1   en/disabled
-                                         * 0   capability */
-    csfo: u16,                 /* current set features options
-                                         * 15:4   reserved
-                                         * 3   auto reassign
-                                         * 2   reverting
-                                         * 1   read-look-ahead
-                                         * 0   write cache */
-    words130_155: [u16;26],          /* reserved vendor words 130-155 */
+    word89: u16,                 /* reserved (word 89) */
+    word90: u16,                 /* reserved (word 90) */
+    CurAPMvalues: u16,           /* current APM values */
+    word92: u16,                 /* reserved (word 92) */
+    comreset: u16,               /* should be cleared to 0 */
+    accoustic: u16,              /*  accoustic management */
+    min_req_sz: u16,             /* Stream minimum required size */
+    transfer_time_dma: u16,      /* Streaming Transfer Time-DMA */
+    access_latency: u16,         /* Streaming access latency-DMA & PIO WORD 97*/
+    perf_granularity: u32,       /* Streaming performance granularity */
+    total_usr_sectors: [u32; 2], /* Total number of user addressable sectors */
+    transfer_time_pio: u16,      /* Streaming Transfer time PIO */
+    reserved105: u16,            /* Word 105 */
+    sector_sz: u16,              /* Physical Sector size / Logical sector size */
+    inter_seek_delay: u16,       /* In microseconds */
+    words108_116: [u16; 9],      /* Reserved */
+    words_per_sector: u32,       /* words per logical sectors */
+    supported_settings: u16,     /* continued from words 82-84 */
+    command_set_3: u16,          /* continued from words 85-87 */
+    words121_126: [u16; 6],      /* reserved words 121-126 */
+    word127: u16,                /* reserved (word 127) */
+    security_status: u16,        /* device lock function
+                                  * 15:9   reserved
+                                  * 8   security level 1:max 0:high
+                                  * 7:6   reserved
+                                  * 5   enhanced erase
+                                  * 4   expire
+                                  * 3   frozen
+                                  * 2   locked
+                                  * 1   en/disabled
+                                  * 0   capability */
+    csfo: u16,               /* current set features options
+                              * 15:4   reserved
+                              * 3   auto reassign
+                              * 2   reverting
+                              * 1   read-look-ahead
+                              * 0   write cache */
+    words130_155: [u16; 26], /* reserved vendor words 130-155 */
     word156: u16,
-    words157_159: [u16;3],            /* reserved vendor words 157-159 */
-    cfa: u16,                   /* CFA Power mode 1 */
-    words161_175: [u16;15],           /* Reserved */
-    media_serial: [u8;60],            /* words 176-205 Current Media serial number */
-    sct_cmd_transport: u16,     /* SCT Command Transport */
-    words207_208: [u16;2],            /* reserved */
-    block_align: u16,           /* Alignement of logical blocks in larger physical blocks */
-    WRV_sec_count: u32,         /* Write-Read-Verify sector count mode 3 only */
-    verf_sec_count: u32,        /* Verify Sector count mode 2 only */
-    nv_cache_capability: u16,   /* NV Cache capabilities */
-    nv_cache_sz: u16,           /* NV Cache size in logical blocks */
-    nv_cache_sz2: u16,          /* NV Cache size in logical blocks */
-    rotation_rate: u16,         /* Nominal media rotation rate */
-    word218: u16,               /* Reserved  */
-    nv_cache_options: u16,      /* NV Cache options */
-    words220_221: [u16;2],            /* reserved */
+    words157_159: [u16; 3],   /* reserved vendor words 157-159 */
+    cfa: u16,                 /* CFA Power mode 1 */
+    words161_175: [u16; 15],  /* Reserved */
+    media_serial: [u8; 60],   /* words 176-205 Current Media serial number */
+    sct_cmd_transport: u16,   /* SCT Command Transport */
+    words207_208: [u16; 2],   /* reserved */
+    block_align: u16,         /* Alignement of logical blocks in larger physical blocks */
+    WRV_sec_count: u32,       /* Write-Read-Verify sector count mode 3 only */
+    verf_sec_count: u32,      /* Verify Sector count mode 2 only */
+    nv_cache_capability: u16, /* NV Cache capabilities */
+    nv_cache_sz: u16,         /* NV Cache size in logical blocks */
+    nv_cache_sz2: u16,        /* NV Cache size in logical blocks */
+    rotation_rate: u16,       /* Nominal media rotation rate */
+    word218: u16,             /* Reserved  */
+    nv_cache_options: u16,    /* NV Cache options */
+    words220_221: [u16; 2],   /* reserved */
     transport_major_rev: u16,
     transport_minor_rev: u16,
-    words224_233: [u16;10],           /* Reserved */
-    min_dwnload_blocks: u16,    /* Minimum number of 512 byte units per DOWNLOAD MICROCODE command for mode 03h */
-    max_dwnload_blocks: u16,    /* Maximum number of 512 byte units per DOWNLOAD MICROCODE command for mode 03h */
-    words236_254: [u16;19],          /* Reserved */
-    integrity: u16,             /* Cheksum, Signature */
+    words224_233: [u16; 10], /* Reserved */
+    min_dwnload_blocks: u16, /* Minimum number of 512 byte units per DOWNLOAD MICROCODE command for mode 03h */
+    max_dwnload_blocks: u16, /* Maximum number of 512 byte units per DOWNLOAD MICROCODE command for mode 03h */
+    words236_254: [u16; 19], /* Reserved */
+    integrity: u16,          /* Cheksum, Signature */
 }
 
 #[allow(warnings)]
@@ -316,7 +314,6 @@ struct FisRegisterHostToDevice {
     //uint8_t portMultiplierPort: 4;
     //uint8_t reserved1: 3;
     //uint8_t commandControl: 1;
-
     command: u8,
     featureLow: u8,
 
@@ -342,16 +339,24 @@ struct FisRegisterHostToDevice {
     reserved2: u32,
 }
 
-
 #[allow(warnings)]
-pub fn init(){
+pub fn init() {
     info!("searching the bus for mass storage devices that use sata");
-    let mut found_devices = pci_bus().search_by_class(MASS_STORAGE_DEVICE as BaseClass, SATA_CONTROLLER as SubClass);
-    info!("habe die folgenden Geräte gefunden {:?}", found_devices.len());
+    let mut found_devices = pci_bus().search_by_class(
+        MASS_STORAGE_DEVICE as BaseClass,
+        SATA_CONTROLLER as SubClass,
+    );
+    info!(
+        "habe die folgenden Geräte gefunden {:?}",
+        found_devices.len()
+    );
     let mut device = found_devices.pop().unwrap();
     unsafe {
         let mut ahci_controller = Arc::new(AhciController::new(device));
-        info!("der ahci controller hat die hba: {:?}", ahci_controller.hba_regs);
+        info!(
+            "der ahci controller hat die hba: {:?}",
+            ahci_controller.hba_regs
+        );
         info!("check, if bios handoff needed");
         ahci_controller.check_bios_handoff();
         info!("check if ports have ata");
@@ -395,66 +400,52 @@ pub fn init(){
         let firmware_rev = id_device.firmwareRevision.clone();
         let firmware_str = String::from_utf8(Vec::from(firmware_rev)).unwrap();
 
-        info!("die neue serial nr ist {}, und die neue firmware ist {}", serial_str, firmware_str);
+        info!(
+            "die neue serial nr ist {}, und die neue firmware ist {}",
+            serial_str, firmware_str
+        );
     }
-
-
 
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
 }
-    #[allow(warnings)]
+#[allow(warnings)]
 impl AhciController {
-
-    fn get_hba_reg(ahci_base_addr: *mut u8) -> *mut HBARegister{
-        unsafe{
-            ahci_base_addr as *mut HBARegister
-        }
+    fn get_hba_reg(ahci_base_addr: *mut u8) -> *mut HBARegister {
+        unsafe { ahci_base_addr as *mut HBARegister }
     }
 
-
-    unsafe fn init_ports(ahci_base_addr: *mut u8, hba_ports: u32) ->Vec<*mut HbaPort>{
+    unsafe fn init_ports(ahci_base_addr: *mut u8, hba_ports: u32) -> Vec<*mut HbaPort> {
         //aus der hba ports variable muss erst mal die Anzahl der Ports bestimmt werden. Dazu muss die Anzahl der 1 in der Binaerform gezaehlt werden.
         info!("initialisiere die ports");
         let mut port_nr = 0;
         let mut calc = hba_ports;
-        while calc != 0{
-            calc = calc & (calc -1);
+        while calc != 0 {
+            calc = calc & (calc - 1);
             port_nr += 1;
         }
         info!("port anzahl = {:?}", port_nr);
-        let mut output : Vec<*mut HbaPort> = Vec::<*mut HbaPort>::new();
-        for i in 0..port_nr{
-            output.push(Self::get_port(ahci_base_addr,i));
+        let mut output: Vec<*mut HbaPort> = Vec::<*mut HbaPort>::new();
+        for i in 0..port_nr {
+            output.push(Self::get_port(ahci_base_addr, i));
         }
         output
     }
 
-
-    
-
     fn get_port(ahci_base_addr: *mut u8, nr_of_port: u64) -> *mut HbaPort {
-        unsafe{
-            ahci_base_addr.offset((256 + (nr_of_port * 128)) as isize) as *mut HbaPort
-        }
-
+        unsafe { ahci_base_addr.offset((256 + (nr_of_port * 128)) as isize) as *mut HbaPort }
     }
 
-
-   
-    fn get_cmd_table_header(start: *mut u8) -> *mut HbaCommandTableHeader{
-        unsafe{
-            start as *mut HbaCommandTableHeader
-
-        }
+    fn get_cmd_table_header(start: *mut u8) -> *mut HbaCommandTableHeader {
+        unsafe { start as *mut HbaCommandTableHeader }
     }
 
     unsafe fn new(device: &RwLock<EndpointHeader>) -> Self {
         let device_header = device.read();
 
         // bei base address register (bar5) stehen die wichtigen Daten für die pci capabilities, register, etc.
-        let bar5 = device_header.bar(5,&pci_bus().config_space());
+        let bar5 = device_header.bar(5, &pci_bus().config_space());
         // bei bar4 findet sich ein io port
-        let bar4 = device_header.bar(4,&pci_bus().config_space());
+        let bar4 = device_header.bar(4, &pci_bus().config_space());
         info!("bar with slot one has the following info: {:?}", bar5);
         let bar_io = bar4.unwrap().unwrap_io();
         let bar_mem = bar5.unwrap().unwrap_mem();
@@ -466,23 +457,24 @@ impl AhciController {
         Self::map_general(bar_mem.0 as u64, bar_mem.1 as u64, "ahci");
         let hba = Self::get_hba_reg(ahci_base_addr);
 
-        Self{
+        Self {
             hba_regs: *hba,
-            ports:Self::init_ports(ahci_base_addr,(*hba).portsImplemented)
+            ports: Self::init_ports(ahci_base_addr, (*hba).portsImplemented),
         }
-
     }
 
-
     //length is in bytes
-    pub unsafe fn map_general(address: u64, length: u64, tag: &str){
+    pub unsafe fn map_general(address: u64, length: u64, tag: &str) {
         info!(
-                "Found non-volatile memory (Address: [0x{:x}], Length: [{} B])",
-                address,
-                length
-            );
+            "Found non-volatile memory (Address: [0x{:x}], Length: [{} B])",
+            address, length
+        );
 
-        info!("length is {} and num_pages is {}", length, length/PAGE_SIZE as u64);
+        info!(
+            "length is {} and num_pages is {}",
+            length,
+            length / PAGE_SIZE as u64
+        );
         let process = process_manager()
             .read()
             .kernel_process()
@@ -490,47 +482,55 @@ impl AhciController {
 
         // Map non-volatile memory range to kernel address space
         let start_page = pages::page_from_u64(address).expect("address is not page aligned");
-        let start_page_frame = frames::frame_from_u64(address).expect("address is not page aligned");
+        let start_page_frame =
+            frames::frame_from_u64(address).expect("address is not page aligned");
 
         let test = PhysFrameRange {
             start: start_page_frame,
-            end: start_page_frame + ((length + PAGE_SIZE as u64 -1)  / PAGE_SIZE as u64)};
+            end: start_page_frame + ((length + PAGE_SIZE as u64 - 1) / PAGE_SIZE as u64),
+        };
         info!("testframe is {:?}", test);
 
         // Allocate virtual memory area for the non-volatile memory
-        let vma = process.virtual_address_space.alloc_vma(
-            Some(start_page),
-            length / PAGE_SIZE as u64,
-            MemorySpace::Kernel,
-            VmaType::DeviceMemory,
-            tag,
-        ).expect("alloc_vma failed");
+        let vma = process
+            .virtual_address_space
+            .alloc_vma(
+                Some(start_page),
+                length / PAGE_SIZE as u64,
+                MemorySpace::Kernel,
+                VmaType::DeviceMemory,
+                tag,
+            )
+            .expect("alloc_vma failed");
 
         // Map non-volatile memory to the kernel address space
-        process.virtual_address_space.map_pfr_for_vma(
-            &vma,
-            PhysFrameRange {
-                start: start_page_frame,
-                end: start_page_frame + (length / PAGE_SIZE as u64),
-            },
-            PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
-        ).expect("map_pfr_for_vma failed for NVRAM");
+        process
+            .virtual_address_space
+            .map_pfr_for_vma(
+                &vma,
+                PhysFrameRange {
+                    start: start_page_frame,
+                    end: start_page_frame + (length / PAGE_SIZE as u64),
+                },
+                PageTableFlags::PRESENT | PageTableFlags::WRITABLE,
+            )
+            .expect("map_pfr_for_vma failed for NVRAM");
     }
 
-    pub fn general_bit_check(register: u32, bit_position: u8)->bool{
-        let mask = 1<<bit_position;
+    pub fn general_bit_check(register: u32, bit_position: u8) -> bool {
+        let mask = 1 << bit_position;
         return register & mask != 0;
     }
 
-    pub fn general_bitlen_reader(register: u32, bit_position: u8, len: u8)-> u32{
-        let mut mask = 1<<bit_position;
-        for i in 0..len{
-            mask = mask | 1<<(bit_position + i)
+    pub fn general_bitlen_reader(register: u32, bit_position: u8, len: u8) -> u32 {
+        let mut mask = 1 << bit_position;
+        for i in 0..len {
+            mask = mask | 1 << (bit_position + i)
         }
-        return (register & mask)>>bit_position;
+        return (register & mask) >> bit_position;
     }
 
-    pub fn translate_signature(sign: u32)->DeviceSignature{
+    pub fn translate_signature(sign: u32) -> DeviceSignature {
         match sign {
             0x00000000 => return DeviceSignature::NONE,
             0x00000101 => return DeviceSignature::ATA,
@@ -539,104 +539,111 @@ impl AhciController {
             0x96690101 => return DeviceSignature::PORT_MULTIPLIER,
             _ => {
                 info!("value not found");
-                return DeviceSignature::NONE
+                return DeviceSignature::NONE;
             }
         }
     }
 
-    pub unsafe fn check_ports_for_device(& self){
-        for current_port in self.ports.clone(){
-            if Self::check_port_usable(current_port){
+    pub unsafe fn check_ports_for_device(&self) {
+        for current_port in self.ports.clone() {
+            if Self::check_port_usable(current_port) {
                 let signature = (*current_port).signature;
-                info!("the device signature is {:?}", Self::translate_signature(signature));
-
+                info!(
+                    "the device signature is {:?}",
+                    Self::translate_signature(signature)
+                );
             }
-
         }
     }
 
-    pub unsafe fn check_port_usable(port:*mut HbaPort)-> bool{
+    pub unsafe fn check_port_usable(port: *mut HbaPort) -> bool {
         let ssts = (*port).sataStatus;
         let ipm = (ssts >> 8) & 0x0F;
         let det = ssts & 0x0F;
 
-        if ipm != 0x01 {    //0x01 means that the interface of the device is active. only then the device can be accessed
+        if ipm != 0x01 {
+            //0x01 means that the interface of the device is active. only then the device can be accessed
             //info!("ERR: interface is not active");
             return false;
         }
-        if det != 0x03 {    //0x03 means that the device is detected and a physical communication is established
+        if det != 0x03 {
+            //0x03 means that the device is detected and a physical communication is established
             //info!("ERR: device is not detected, or physical communication not established");
             return false;
         }
         true
     }
 
-    pub fn check_ahci_mode_enabled(&self){
+    pub fn check_ahci_mode_enabled(&self) {
         let ghc = self.hba_regs.globalHostControl;
         let output = Self::general_bit_check(ghc, 31);
-        if output{
+        if output {
             info!("der Controller läuft im ahci modus");
-        }else{
+        } else {
             info!("der Controller läuft nicht im ahci modus");
         }
     }
 
-    pub fn check_only_ahci(&self){
+    pub fn check_only_ahci(&self) {
         let sam = self.hba_regs.hostCapabilities;
         let output = Self::general_bit_check(sam, 18);
-        if output{
+        if output {
             info!("der Controller unterstützt nur ahci");
-        }else{
+        } else {
             info!("der Controller unterstützt nicht nur ahci");
         }
     }
 
-    pub fn check_bios_handoff(&self){
+    pub fn check_bios_handoff(&self) {
         //check if the version is high enough
-        if self.hba_regs.version >= 0x10200{
+        if self.hba_regs.version >= 0x10200 {
             info!("Version ist hoch genug");
             let ext_cap = self.hba_regs.extendedHostCapabilities;
             info!("ext_cap sind {}", ext_cap);
-            if ext_cap & 1 != 0{
+            if ext_cap & 1 != 0 {
                 info!("BIOS Handoff wird vom Controller unterstützt")
             }
-        }else{
+        } else {
             info!("Version ist nicht hoch genug")
         }
         let handoff = self.hba_regs.biosHandoffControl;
-        if handoff == 0{
+        if handoff == 0 {
             info!("the bios has no control over the hba, so the os can use it");
         }
     }
 
-    pub fn check_64_bit_addr_supported(&self){
+    pub fn check_64_bit_addr_supported(&self) {
         let cap = self.hba_regs.hostCapabilities;
         let output = Self::general_bit_check(cap, 31);
-        if output{
+        if output {
             info!("es werden 64 bit adressen unterstützt");
-        }else{
+        } else {
             info!("es werden 32 bit adressen unterstützt");
         }
-
     }
 
-    pub fn check_cap_nr_of_ports(&self){
+    pub fn check_cap_nr_of_ports(&self) {
         let cap = self.hba_regs.hostCapabilities;
         let nr_of_ports = Self::general_bitlen_reader(cap, 0, 5);
-        info!("laut capabilities werden {} Ports unterstützt.", nr_of_ports);
+        info!(
+            "laut capabilities werden {} Ports unterstützt.",
+            nr_of_ports
+        );
     }
 
-
-    pub fn check_nr_of_command_slots(&self)->u32{
+    pub fn check_nr_of_command_slots(&self) -> u32 {
         let cap = self.hba_regs.hostCapabilities;
         let nr_of_cmds = Self::general_bitlen_reader(cap, 8, 5);
-        info!("laut capabilities werden {} Command slots unterstützt.", nr_of_cmds);
+        info!(
+            "laut capabilities werden {} Command slots unterstützt.",
+            nr_of_cmds
+        );
         nr_of_cmds
     }
 
-    pub unsafe fn map_command_components(&self){
-        for port in &self.ports{
-            if Self::check_port_usable(*port){
+    pub unsafe fn map_command_components(&self) {
+        for port in &self.ports {
+            if Self::check_port_usable(*port) {
                 self.map_command_for_port(*port);
                 info!("port fertig gemappt");
             }
@@ -647,25 +654,27 @@ impl AhciController {
     // die Region für received fis werden direkt aus dem Port gelesen und hier können von eingehenden Fis Werte geschrieben werden
     // jeder header innerhalb der command list verweist auf eine eigene command table, in der command fis, atapi command und physical region descriptor table liegen
 
-    pub unsafe fn map_command_for_port(&self, port: *mut HbaPort){
+    pub unsafe fn map_command_for_port(&self, port: *mut HbaPort) {
         self.stop_cmd_engine(port);
         //baue die Adresse für die 32 cmd header
         // die header zusammen bilden die command list
-        let first_cmd_header_addr:u64 = (*port).commandListBaseAddress as u64 | (((*port).commandListBaseAddressUpper as u64) << 32);
+        let first_cmd_header_addr: u64 = (*port).commandListBaseAddress as u64
+            | (((*port).commandListBaseAddressUpper as u64) << 32);
         let size_cmd_header = 1024;
 
         //baue die Adresse für die received FIS
-        let received_fis: u64 = (*port).fisBaseAddress as u64 | (((*port).fisBaseAddressUpper as u64) << 32);
+        let received_fis: u64 =
+            (*port).fisBaseAddress as u64 | (((*port).fisBaseAddressUpper as u64) << 32);
         let size_received_fis = 256;
         //info!("die Addressen sind: cmd_header: {:x}, received_fis: {:x}", first_cmd_header_addr, received_fis);
         unsafe {
             //falls zwei memory spaces auf je kleiner als eine Seite sind, wird nach den Startadressen abhängig gemacht,
             // ob sie spaces sich die Page teilen, oder separate Pages erhalten
 
-            if received_fis - first_cmd_header_addr >= PAGE_SIZE as u64{
+            if received_fis - first_cmd_header_addr >= PAGE_SIZE as u64 {
                 Self::map_general(first_cmd_header_addr, PAGE_SIZE as u64, "cmd_hd");
                 Self::map_general(received_fis, PAGE_SIZE as u64, "rc_fis");
-            }else {
+            } else {
                 // cmd header ist vor page size. beide sind kleiner als eine Page, also teilen sie sich zwei Seiten
                 Self::map_general(first_cmd_header_addr, 2 * PAGE_SIZE as u64, "cmd_and_fis");
             }
@@ -679,19 +688,17 @@ impl AhciController {
             //info!("prdt ist {:?}", prdt);
 
             //map the first command table with the info of the first command header
-            let first_cmd_table_addr = (*cmd_header1).commandTableDescriptorBaseAddress as u64 | (((*cmd_header1).commandTableDescriptorBaseAddressUpper as u64)<<32);
+            let first_cmd_table_addr = (*cmd_header1).commandTableDescriptorBaseAddress as u64
+                | (((*cmd_header1).commandTableDescriptorBaseAddressUpper as u64) << 32);
             //info!("the first_cmd_table_addr is {:x}", first_cmd_table_addr);
             // das ist die Größe aus der combined command table mit 8 Inhalten
             let cmd_table_size = 256;
             Self::map_general(first_cmd_table_addr, PAGE_SIZE as u64, "cmd_tbl");
 
-
             //check, if the first command table has actual values inside it
 
             self.start_cmd_engine(port);
-
         }
-
     }
     //Diese Funktion testet, ob start und stop von command engine läuft
     /*pub unsafe fn test_ports_command_engine(&self){
@@ -702,47 +709,45 @@ impl AhciController {
             }
         }
     }*/
-    pub unsafe fn start_cmd_engine(&self, mut port: *mut HbaPort){
+    pub unsafe fn start_cmd_engine(&self, mut port: *mut HbaPort) {
         info!("port ist nun {:?}", port);
-        while((*port).command & COMMAND_LIST_RUNNING) > 0{
+        while ((*port).command & COMMAND_LIST_RUNNING) > 0 {
             wait_ms(10);
         }
         (*port).command |= (START | FIS_RECIVE_ENABLE);
         info!("port ist nun {:?}", port);
     }
 
-    pub unsafe fn stop_cmd_engine(&self, mut port: *mut HbaPort){
+    pub unsafe fn stop_cmd_engine(&self, mut port: *mut HbaPort) {
         info!("port ist nun {:?}", port);
         (*port).command &= (START | FIS_RECIVE_ENABLE);
-        while ((*port).command & (FIS_RECEIVE_RUNNING | COMMAND_LIST_RUNNING)) > 0{
+        while ((*port).command & (FIS_RECEIVE_RUNNING | COMMAND_LIST_RUNNING)) > 0 {
             wait_ms(10);
         }
         info!("port ist nun {:?}", port);
     }
 
-
     //finden eines freien command headers über den port
-    pub unsafe fn find_cmd_slot(&self, mut port: *mut HbaPort) -> i32{
+    pub unsafe fn find_cmd_slot(&self, mut port: *mut HbaPort) -> i32 {
         let nr_cmd_slots = self.check_nr_of_command_slots();
         let mut slots = (*port).sataActive | (*port).sataError;
         info!("slots ist {:b}", slots);
-        for i in 0..nr_cmd_slots{
-            if (slots & 1) == 0{
+        for i in 0..nr_cmd_slots {
+            if (slots & 1) == 0 {
                 info!("slot gefunden an Stelle {}", i);
                 return i as i32;
             }
-            slots >>=1;
+            slots >>= 1;
         }
         info!("kein Slot gefunden!");
         -1
     }
     // hier darf clone verwendet werden, weil das Finden eines Slots nichts am Port verändert
     pub unsafe fn find_slot_all_ports(&self) -> Option<*mut HbaPort> {
-        for port in &self.ports{
-            if Self::check_port_usable(port.clone()){
-                if (self.find_cmd_slot(port.clone())) != -1{
+        for port in &self.ports {
+            if Self::check_port_usable(port.clone()) {
+                if (self.find_cmd_slot(port.clone())) != -1 {
                     return Some(port.clone());
-
                 }
             }
         }
@@ -751,13 +756,13 @@ impl AhciController {
 
     // fis steht für frame information structure
 
-    pub unsafe fn identify_device(&self, portnr: u32) -> DeviceInfo{
-        let mut command_fis = [0u8;64];
-        let mut atapi_cmd = [0u8;16];
+    pub unsafe fn identify_device(&self, portnr: u32) -> DeviceInfo {
+        let mut command_fis = [0u8; 64];
+        let mut atapi_cmd = [0u8; 16];
 
         //prepare the host to device fis (muss das nicht mehr gesendet werden??)
         // das muss noch in den command fis gelegt werden
-        let mut host_to_device_fis = FisRegisterHostToDevice{
+        let mut host_to_device_fis = FisRegisterHostToDevice {
             typ: 39,
             combined: 1,
             command: 0,
@@ -778,10 +783,11 @@ impl AhciController {
         };
 
         let port = self.ports[portnr as usize];
-        if (*port).signature == 257{                           //port signature if it is an ata port
-            host_to_device_fis.command = 236;               //identification code for ata
-        }else{
-            host_to_device_fis.command = 161;               //identification code for atapi
+        if (*port).signature == 257 {
+            //port signature if it is an ata port
+            host_to_device_fis.command = 236; //identification code for ata
+        } else {
+            host_to_device_fis.command = 161; //identification code for atapi
         }
         info!("found port is {:?}", port);
         info!("host_to_device_fis is {:?}", host_to_device_fis);
@@ -795,13 +801,13 @@ impl AhciController {
         info!("new command fis is now {:?}\n\n\n\n\n\n\n", command_fis);
 
         //ist das die richtige Umwandlung von der phys frame range?
-        let mut info = self.read_from_device(portnr,512, command_fis, atapi_cmd).unwrap();
+        let mut info = self
+            .read_from_device(portnr, 512, command_fis, atapi_cmd)
+            .unwrap();
         let mut info_ptr = addr_of_mut!(info).addr();
         let mut output = info_ptr as *mut DeviceInfo;
         info!("Output after: {:?}", unsafe { output.read() });
-        unsafe {
-            output.read()
-        }
+        unsafe { output.read() }
     }
 
     //Befehl für identify device:
@@ -828,56 +834,67 @@ impl AhciController {
     return info;
     }*/
 
-
     //innerhalb der clb gibt es eine command liste
-    pub unsafe fn read_from_device(&self, portnr: u32, byte_count: u32, mut command_fis:[u8;64], atapi_command: [u8;16]) -> Option<PhysFrameRange> {
-
+    pub unsafe fn read_from_device(
+        &self,
+        portnr: u32,
+        byte_count: u32,
+        mut command_fis: [u8; 64],
+        atapi_command: [u8; 16],
+    ) -> Option<PhysFrameRange> {
         //info!("input is portnr{}, byte_count {}, command_fis{:?}, atapi_command{:?}", portnr, byte_count, command_fis, atapi_command);
         let mut port = self.ports[portnr as usize];
         info!("port in read from device ist {:?}", port);
-        let mut command_list_addr = (*port).commandListBaseAddress as u64 | (((*port).commandListBaseAddressUpper as u64) << 32);
-        unsafe{
+        let mut command_list_addr = (*port).commandListBaseAddress as u64
+            | (((*port).commandListBaseAddressUpper as u64) << 32);
+        unsafe {
             // weil ich nur bisher einen cmd_header in der Liste habe, kann ich da direkt reinschreiben
             let mut first_cmd_header = Self::get_cmd_table_header(command_list_addr as *mut u8);
             //die command List besteht aus cmd_table_headern, welche selbst dann auf die command Table verweisen
-            info!("first_cmd_header in read from device is {:?}", first_cmd_header);
+            info!(
+                "first_cmd_header in read from device is {:?}",
+                first_cmd_header
+            );
 
             // hier noch ein paar Hilfen
-            if Self::check_port_usable(port) !=true{
+            if Self::check_port_usable(port) != true {
                 info!("ERR: Port is not usable");
                 return None;
             }
 
             let slot = self.find_cmd_slot(port);
-            if slot == -1{
+            if slot == -1 {
                 info!("ERR: Slot nicht gefunden");
                 return None;
             }
 
             // hier soll dann der DMA Buffer impl werden
             let mut dma_reg = AhciController::allocate_heap_region(byte_count);
-            let dma_reg_addr = dma_reg.start.start_address().as_u64() as * mut u32;
-
+            let dma_reg_addr = dma_reg.start.start_address().as_u64() as *mut u32;
 
             // hier werden dann die Werte kopiert
             // hier wird nur die command table gemacht, nicht die command list
-            let mut combined_cmd_table = self.create_combined_hba_cmd_table(byte_count, dma_reg_addr);
+            let mut combined_cmd_table =
+                self.create_combined_hba_cmd_table(byte_count, dma_reg_addr);
             combined_cmd_table.cmd_table.commandFis = command_fis.clone();
             combined_cmd_table.cmd_table.atapiCommand = atapi_command.clone();
-            info!("die combined cmd_table sieht so aus: {:?}", combined_cmd_table);
+            info!(
+                "die combined cmd_table sieht so aus: {:?}",
+                combined_cmd_table
+            );
             //data base addr ist bei 0x586000 (keine VMA?)
 
             // jetzt wird in die command list geschrieben
 
             let mut physical_region_descriptor_table_length = byte_count / 4096;
-            if physical_region_descriptor_table_length == 0{
-                physical_region_descriptor_table_length = (byte_count / 4096) +1;
+            if physical_region_descriptor_table_length == 0 {
+                physical_region_descriptor_table_length = (byte_count / 4096) + 1;
             }
 
             //nachschauen, wie ich auf diese Größen komme
             let mut cmd_fis_len = size_of::<FisRegisterHostToDevice>() / size_of::<u32>();
-            let mut atapi = 0;      //atapi ist aktuell 0
-            if atapi_command[0] != 0{
+            let mut atapi = 0; //atapi ist aktuell 0
+            if atapi_command[0] != 0 {
                 atapi = 1;
             }
 
@@ -887,7 +904,10 @@ impl AhciController {
             let cmd_table_base_addr: u64 = addr_of_mut!(combined_cmd_table).addr() as u64;
             let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
             let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
-            info!("die addr sind: {} und upper {}", lower_cmd_table_base_addr, upper_cmd_table_base_addr);
+            info!(
+                "die addr sind: {} und upper {}",
+                lower_cmd_table_base_addr, upper_cmd_table_base_addr
+            );
             //VMA DeviceMemory, [0xdef6000; 0xdef7000], #pages: 1, tag: "cmd_tbl-", aber die addressen passen nicht
             //lower ist 0x1f90108 upper ist 0
 
@@ -895,14 +915,16 @@ impl AhciController {
             // atapi ist 0, weil es ein ata Befehl ist
             // cmd_fis_len ist 5
             //prdt_len ist 1 (weil nur eine prdt benötigt wird)
-            let combined = (physical_region_descriptor_table_length << 16) as u32 | ( atapi << 5) as u32 | cmd_fis_len as u32;
+            let combined = (physical_region_descriptor_table_length << 16) as u32
+                | (atapi << 5) as u32
+                | cmd_fis_len as u32;
             (*first_cmd_header).first = combined;
-            info!("combined ist {:b}", combined);       //combined sollte passen
+            info!("combined ist {:b}", combined); //combined sollte passen
 
             (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
             (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
             // warum hat sich hier etwas verändert??
-            info!("first_cmd_header ist {:?}",first_cmd_header);
+            info!("first_cmd_header ist {:?}", first_cmd_header);
 
             let mut output = dma_reg_addr as *mut DeviceInfo;
             info!("Output before: {:?}", unsafe { output.read() });
@@ -914,79 +936,75 @@ impl AhciController {
 
             Some(dma_reg)
         }
-
     }
 
     /*
-    void* AhciController::readFromDevice(uint32_t portNumber, uint32_t byteCount, const uint8_t commandFis[64], const uint8_t atapiCommand[16]) {
+        void* AhciController::readFromDevice(uint32_t portNumber, uint32_t byteCount, const uint8_t commandFis[64], const uint8_t atapiCommand[16]) {
 
-    //suche den richtigen Port und richtige command list
-    auto &memoryService = Kernel::Service::getService<Kernel::MemoryService>();
-    auto &port = registers->ports[portNumber];
+        //suche den richtigen Port und richtige command list
+        auto &memoryService = Kernel::Service::getService<Kernel::MemoryService>();
+        auto &port = registers->ports[portNumber];
 
-    // in seiner impl hat er eine ref zu jeder cmd liste
-    auto commandList = virtualCommandLists[portNumber];     //wie ist virtualCommandLists? // in der HBA gibt es eine Liste, in der alle command header drin sind?
+        // in seiner impl hat er eine ref zu jeder cmd liste
+        auto commandList = virtualCommandLists[portNumber];     //wie ist virtualCommandLists? // in der HBA gibt es eine Liste, in der alle command header drin sind?
 
-    //einige Sicherheitssachen
-    portLocks[portNumber].acquire();
+        //einige Sicherheitssachen
+        portLocks[portNumber].acquire();
 
-    if (!port.isActive()) {
+        if (!port.isActive()) {
+            portLocks[portNumber].release();
+            return nullptr;
+        }
+        // finde den richtigen header, an den etwas geschrieben werden kann
+        auto slot = findCommandSlot(portNumber);
+
+        if (slot == UINT32_MAX) {
+            portLocks[portNumber].release();
+            return nullptr;
+        }
+
+        auto dmaBuffer = allocateDmaBuffer(byteCount);
+        auto physicalDmaAddress = memoryService.getPhysicalAddress(dmaBuffer);
+
+        //copy von allen wichtigen Werten
+        auto commandTable = HbaCommandTable::createCommandTable(byteCount, physicalDmaAddress);
+        Util::Address(commandTable->commandFis).copyRange(Util::Address(commandFis), sizeof(HbaCommandTable::commandFis));
+        Util::Address(commandTable->atapiCommand).copyRange(Util::Address(atapiCommand), sizeof(HbaCommandTable::atapiCommand));
+
+        // nachdem die command table fertig ist, muss noch der Header der command table richtig mit Werten befüllt werden
+        auto &commandHeader = commandList[slot];
+        commandHeader.clear();
+        commandHeader.physicalRegionDescriptorTableLength = byteCount % BYTES_PER_DESCRIPTOR_ENTRY == 0 ? (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) : (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) + 1;
+        commandHeader.commandFisLength = sizeof(FisRegisterHostToDevice) / sizeof(uint32_t);
+        commandHeader.commandTableDescriptorBaseAddress = reinterpret_cast<uint32_t>(memoryService.getPhysicalAddress(commandTable));
+        commandHeader.atapi = atapiCommand[0] == 0 ? 0 : 1;
+
+        // achtung: hier muss weiter gecoded werden
+        if (!port.issueCommand(slot)) {
+            portLocks[portNumber].release();
+            delete reinterpret_cast<uint8_t*>(dmaBuffer);
+            delete commandTable;
+            return nullptr;
+        }
+
+        // am Ende soll wohl alles im dmaBuffer stehen
+        // unsicher, ob das so mit dem Typ richtig ist, oder ich da noch was machen muss
         portLocks[portNumber].release();
-        return nullptr;
-    }
-    // finde den richtigen header, an den etwas geschrieben werden kann
-    auto slot = findCommandSlot(portNumber);
-
-    if (slot == UINT32_MAX) {
-        portLocks[portNumber].release();
-        return nullptr;
-    }
-
-    auto dmaBuffer = allocateDmaBuffer(byteCount);
-    auto physicalDmaAddress = memoryService.getPhysicalAddress(dmaBuffer);
-
-    //copy von allen wichtigen Werten
-    auto commandTable = HbaCommandTable::createCommandTable(byteCount, physicalDmaAddress);
-    Util::Address(commandTable->commandFis).copyRange(Util::Address(commandFis), sizeof(HbaCommandTable::commandFis));
-    Util::Address(commandTable->atapiCommand).copyRange(Util::Address(atapiCommand), sizeof(HbaCommandTable::atapiCommand));
-
-    // nachdem die command table fertig ist, muss noch der Header der command table richtig mit Werten befüllt werden
-    auto &commandHeader = commandList[slot];
-    commandHeader.clear();
-    commandHeader.physicalRegionDescriptorTableLength = byteCount % BYTES_PER_DESCRIPTOR_ENTRY == 0 ? (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) : (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) + 1;
-    commandHeader.commandFisLength = sizeof(FisRegisterHostToDevice) / sizeof(uint32_t);
-    commandHeader.commandTableDescriptorBaseAddress = reinterpret_cast<uint32_t>(memoryService.getPhysicalAddress(commandTable));
-    commandHeader.atapi = atapiCommand[0] == 0 ? 0 : 1;
-
-    // achtung: hier muss weiter gecoded werden
-    // issue command muss noch durchgeführt werden
-    if (!port.issueCommand(slot)) {
-        portLocks[portNumber].release();
-        delete reinterpret_cast<uint8_t*>(dmaBuffer);
         delete commandTable;
-        return nullptr;
-    }
-
-    // am Ende soll wohl alles im dmaBuffer stehen
-    // unsicher, ob das so mit dem Typ richtig ist, oder ich da noch was machen muss
-    portLocks[portNumber].release();
-    delete commandTable;
-    return dmaBuffer;
-}*/
+        return dmaBuffer;
+    }*/
 
     //allocate memory into the heap
-
-    //probleme
     pub fn allocate_heap_region(size: u32) -> PhysFrameRange {
-        let mut frame_count = size/4096;
-        if frame_count == 0{
-            frame_count +=1;
+        let mut frame_count = size / 4096;
+        if frame_count == 0 {
+            frame_count += 1;
         }
 
         let mut output = frames::alloc(frame_count as usize);
         output
     }
-    pub fn allocate_dma_buffer(size: u32) -> PhysFrameRange{
+    pub fn allocate_dma_buffer(size: u32) -> PhysFrameRange {
         Self::allocate_heap_region(size)
     }
 
@@ -995,46 +1013,56 @@ impl AhciController {
     return Kernel::Service::getService<Kernel::MemoryService>().mapIO(dmaPages);
     }*/
 
-    pub fn create_combined_hba_cmd_table(&self, byte_count: u32, physical_dma_buffer : *mut u32) ->combined_HBA_CommandTable{
+    pub fn create_combined_hba_cmd_table(
+        &self,
+        byte_count: u32,
+        physical_dma_buffer: *mut u32,
+    ) -> combined_HBA_CommandTable {
         let cmd_table = self.create_hba_cmd_table();
         let mut descriptor_count;
-        if byte_count / 4096 == 0{
-            descriptor_count = (byte_count / 4096) +1;
-        }else{
+        if byte_count / 4096 == 0 {
+            descriptor_count = (byte_count / 4096) + 1;
+        } else {
             descriptor_count = byte_count / 4096;
         }
         info!("descriptor count ist {}", descriptor_count);
         let cmd_vec = self.create_cmd_vec(byte_count, physical_dma_buffer, descriptor_count);
 
-        combined_HBA_CommandTable{
+        combined_HBA_CommandTable {
             cmd_table,
             physicalRegionDescriptorTable: cmd_vec,
         }
     }
-    pub fn create_hba_cmd_table(&self)->HbaCommandTable{
+    pub fn create_hba_cmd_table(&self) -> HbaCommandTable {
         // füllt nur mit 0 auf, weil das später anders reinkopiert wird
-        let output = HbaCommandTable{
-            commandFis: [0;64],
-            atapiCommand: [0;16],
-            reserved: [0;48],
+        let output = HbaCommandTable {
+            commandFis: [0; 64],
+            atapiCommand: [0; 16],
+            reserved: [0; 48],
         };
         output
     }
-    pub fn create_cmd_vec(&self, byte_count: u32, physical_dma_buffer : *mut u32, descriptor_count: u32) ->Vec<HbaPhysicalRegionDescriptorTableEntry>{
-        let mut output : Vec<HbaPhysicalRegionDescriptorTableEntry> = Vec::<HbaPhysicalRegionDescriptorTableEntry>::new();
+    pub fn create_cmd_vec(
+        &self,
+        byte_count: u32,
+        physical_dma_buffer: *mut u32,
+        descriptor_count: u32,
+    ) -> Vec<HbaPhysicalRegionDescriptorTableEntry> {
+        let mut output: Vec<HbaPhysicalRegionDescriptorTableEntry> =
+            Vec::<HbaPhysicalRegionDescriptorTableEntry>::new();
         unsafe {
-            for i in 0..descriptor_count{
+            for i in 0..descriptor_count {
                 info!("dma_buffer is at {:p}", physical_dma_buffer);
                 let remaining_count = byte_count - (i * 4096);
-                let mut entry_byte_count = 4096 -1;
-                if remaining_count < 4096{
-                    entry_byte_count = remaining_count -1;
+                let mut entry_byte_count = 4096 - 1;
+                if remaining_count < 4096 {
+                    entry_byte_count = remaining_count - 1;
                 }
-                let new_entry = HbaPhysicalRegionDescriptorTableEntry{
+                let new_entry = HbaPhysicalRegionDescriptorTableEntry {
                     dataBaseAddress: physical_dma_buffer.offset((i * 4096) as isize),
                     dataBaseAddressUpper: null::<u32>().cast_mut(),
                     reserved1: 0,
-                    rest: entry_byte_count <<10,
+                    rest: entry_byte_count << 10,
                 };
                 output.push(new_entry);
             }
@@ -1067,8 +1095,135 @@ impl AhciController {
     #return commandTable;
     }*/
 
-}
+    //write to device:
+    /*
+        bool AhciController::writeToDevice(uint32_t portNumber, void *physicalDmaAddress, uint32_t byteCount, const uint8_t *commandFis, const uint8_t *atapiCommand) {
+        auto &memoryService = Kernel::Service::getService<Kernel::MemoryService>();
+        auto &port = registers->ports[portNumber];                  //hole den Port
+        auto *commandList = virtualCommandLists[portNumber];        //eine eigene Liste für Listen, oder getrennt??
 
+        portLocks[portNumber].acquire();
+
+        if (!port.isActive()) {
+            portLocks[portNumber].release();
+            return false;
+        }
+
+        auto slot = findCommandSlot(portNumber);
+        if (slot == UINT32_MAX) {
+            portLocks[portNumber].release();
+            return false;
+        }
+
+        auto *commandTable = HbaCommandTable::createCommandTable(byteCount, physicalDmaAddress);
+        Util::Address(commandTable->commandFis).copyRange(Util::Address(commandFis), sizeof(HbaCommandTable::commandFis));
+        Util::Address(commandTable->atapiCommand).copyRange(Util::Address(atapiCommand), sizeof(HbaCommandTable::atapiCommand));
+
+        auto &commandHeader = commandList[slot];
+        commandHeader.clear();
+        commandHeader.physicalRegionDescriptorTableLength = byteCount % BYTES_PER_DESCRIPTOR_ENTRY == 0 ? (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) : (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) + 1;
+        commandHeader.commandFisLength = sizeof(FisRegisterHostToDevice) / sizeof(uint32_t);
+        commandHeader.commandTableDescriptorBaseAddress = reinterpret_cast<uint32_t>(memoryService.getPhysicalAddress(commandTable));
+        commandHeader.atapi = atapiCommand[0] == 0 ? 0 : 1;
+
+        // Issue command
+        if (!port.issueCommand(slot)) {
+            portLocks[portNumber].release();
+            delete commandTable;
+            return false;
+        }
+
+        portLocks[portNumber].release();
+        delete commandTable;
+        return true;
+    }
+    */
+
+    pub unsafe fn write_to_device(
+        &self,
+        portnr: u32,
+        physical_dma: *mut u32,
+        byte_count: u32,
+        mut command_fis: [u8; 64],
+        atapi_command: [u8; 16],
+    ) -> bool {
+        let mut port = self.ports[portnr as usize];
+        info!("port in write to device ist {:?}", port);
+        let mut command_list_addr = (*port).commandListBaseAddress as u64
+            | (((*port).commandListBaseAddressUpper as u64) << 32);
+        // weil ich nur bisher einen cmd_header in der Liste habe, kann ich da direkt reinschreiben
+        let mut first_cmd_header = Self::get_cmd_table_header(command_list_addr as *mut u8);
+        //die command List besteht aus cmd_table_headern, welche selbst dann auf die command Table verweisen
+        info!(
+            "first_cmd_header in read from device is {:?}",
+            first_cmd_header
+        );
+
+        if Self::check_port_usable(port) != true {
+            info!("ERR: Port is not usable");
+            return false;
+        }
+
+        let slot = self.find_cmd_slot(port);
+        if slot == -1 {
+            info!("ERR: Slot nicht gefunden");
+            return false;
+        }
+
+        let mut combined_cmd_table = self.create_combined_hba_cmd_table(byte_count, physical_dma);
+        combined_cmd_table.cmd_table.commandFis = command_fis.clone();
+        combined_cmd_table.cmd_table.atapiCommand = atapi_command.clone();
+        info!(
+            "die combined cmd_table sieht so aus: {:?}",
+            combined_cmd_table
+        );
+
+        // hier wird alles in den cmd header geschrieben
+
+        let mut physical_region_descriptor_table_length = byte_count / 4096;
+        if physical_region_descriptor_table_length == 0 {
+            physical_region_descriptor_table_length = (byte_count / 4096) + 1;
+        }
+
+        //nachschauen, wie ich auf diese Größen komme
+        let mut cmd_fis_len = size_of::<FisRegisterHostToDevice>() / size_of::<u32>();
+        let mut atapi = 0; //atapi ist aktuell 0
+        if atapi_command[0] != 0 {
+            atapi = 1;
+        }
+
+        // teste ob addr_of_mut funktioniert
+        // hier könnte ein Fehler sein?
+        // muss das struct an die genaue addressse gesetzt werden?
+        let cmd_table_base_addr: u64 = addr_of_mut!(combined_cmd_table).addr() as u64;
+        let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
+        let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
+        info!(
+            "die addr sind: {} und upper {}",
+            lower_cmd_table_base_addr, upper_cmd_table_base_addr
+        );
+        //VMA DeviceMemory, [0xdef6000; 0xdef7000], #pages: 1, tag: "cmd_tbl-", aber die addressen passen nicht
+        //lower ist 0x1f90108 upper ist 0
+
+        //alles zu dem first zusammenfügen (atapi, cmd_fis_len und prdt_len)
+        // atapi ist 0, weil es ein ata Befehl ist
+        // cmd_fis_len ist 5
+        //prdt_len ist 1 (weil nur eine prdt benötigt wird)
+        let combined = (physical_region_descriptor_table_length << 16) as u32
+            | (atapi << 5) as u32
+            | cmd_fis_len as u32;
+        (*first_cmd_header).first = combined;
+        info!("combined ist {:b}", combined); //combined sollte passen
+
+        (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
+        (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
+
+        let success = (*port).issueCommand(slot as u32);
+        info!("success ist {}\n\n\n\n\n\n\n\n\n\n", success);
+
+        return true;
+    }
+}
 
 /*
 bool AhciController::HbaPort::issueCommand(uint8_t slot) {
@@ -1110,15 +1265,15 @@ bool AhciController::HbaPort::issueCommand(uint8_t slot) {
 
 #[allow(warnings)]
 impl HbaPort {
-    pub fn issueCommand(&mut self, slot:u32)->bool{
+    pub fn issueCommand(&mut self, slot: u32) -> bool {
         // Wait while device is busy
         const COMMAND_TIMEOUT: isize = 10000;
         const BUSY: u32 = 128;
         const DATA_TRANSFER_REQUESTED: u32 = 8;
-        const TASK_FILE_ERROR: u32 = 1 <<30;
+        const TASK_FILE_ERROR: u32 = 1 << 30;
         let mut timeout = sys_get_system_time() + COMMAND_TIMEOUT;
 
-        while (self.taskFileData & (BUSY | DATA_TRANSFER_REQUESTED)) >0 {
+        while (self.taskFileData & (BUSY | DATA_TRANSFER_REQUESTED)) > 0 {
             if (sys_get_system_time() >= timeout) {
                 info!("system timeout 1");
                 return false;
@@ -1155,25 +1310,19 @@ impl HbaPort {
 //Comand Liste anschauen (es werden 31 command slots unterstützt) (es wird kein weiterer gefunden)
 //command table mit allen 32 headern versuchen zu allocaten
 
-
 //prdt mappen und genauer anschauen:
 //  das Feld prdt, welches aktuell noch zusammen ist, muss auf 8 begrenzt werden (fertig)
 
 //command table mit Werten befülen / mapping testen (command table ist zu groß und unbestimmt, als dass sie mit Werten gefüllt werden kann. aktuell ist die prdtl = 1)
 
-
-
 // Fehler werden mit f zu geschrieben, weil das -1 repräsentiert
 // Warum bekomme ich viele Ports mit der selben Adresse? gibt es nur einen Port, oder woran liegt das?  (aktuell existiert ein Port)
 //welche Verträge hat die Uni mit Verlegern? kostenlose Bücher?
 
-
-
 //device erkennung impl
 //  read from device impl (debugging)
-    // alloc vom dma Speicher machen (fertig)
-    // create command table impl (fertig)
-        // fragen, ob das region mapping noch gemacht werden muss
-    // verstehen, wie der dma buffer den Inhalt bekommt
+// alloc vom dma Speicher machen (fertig)
+// create command table impl (fertig)
+// fragen, ob das region mapping noch gemacht werden muss
+// verstehen, wie der dma buffer den Inhalt bekommt
 // verstehen, wie man von read from device in das struct kommt
-
