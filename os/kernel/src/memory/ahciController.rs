@@ -57,7 +57,7 @@ enum DeviceSignature {
 
 #[allow(warnings)]
 struct AhciController {
-    hba_regs: HBARegister,
+    hba_regs: *mut HBARegister,
     ports: Vec<*mut HbaPort>,
 }
 #[allow(warnings)]
@@ -458,7 +458,7 @@ impl AhciController {
         let hba = Self::get_hba_reg(ahci_base_addr);
 
         Self {
-            hba_regs: *hba,
+            hba_regs: hba,
             ports: Self::init_ports(ahci_base_addr, (*hba).portsImplemented),
         }
     }
@@ -574,8 +574,8 @@ impl AhciController {
         true
     }
 
-    pub fn check_ahci_mode_enabled(&self) {
-        let ghc = self.hba_regs.globalHostControl;
+    pub unsafe fn check_ahci_mode_enabled(&self) {
+        let ghc = (*self.hba_regs).globalHostControl;
         let output = Self::general_bit_check(ghc, 31);
         if output {
             info!("der Controller läuft im ahci modus");
@@ -584,8 +584,8 @@ impl AhciController {
         }
     }
 
-    pub fn check_only_ahci(&self) {
-        let sam = self.hba_regs.hostCapabilities;
+    pub unsafe fn check_only_ahci(&self) {
+        let sam = (*self.hba_regs).hostCapabilities;
         let output = Self::general_bit_check(sam, 18);
         if output {
             info!("der Controller unterstützt nur ahci");
@@ -594,11 +594,11 @@ impl AhciController {
         }
     }
 
-    pub fn check_bios_handoff(&self) {
+    pub unsafe fn check_bios_handoff(&self) {
         //check if the version is high enough
-        if self.hba_regs.version >= 0x10200 {
+        if (*self.hba_regs).version >= 0x10200 {
             info!("Version ist hoch genug");
-            let ext_cap = self.hba_regs.extendedHostCapabilities;
+            let ext_cap = (*self.hba_regs).extendedHostCapabilities;
             info!("ext_cap sind {}", ext_cap);
             if ext_cap & 1 != 0 {
                 info!("BIOS Handoff wird vom Controller unterstützt")
@@ -606,14 +606,14 @@ impl AhciController {
         } else {
             info!("Version ist nicht hoch genug")
         }
-        let handoff = self.hba_regs.biosHandoffControl;
+        let handoff = (*self.hba_regs).biosHandoffControl;
         if handoff == 0 {
             info!("the bios has no control over the hba, so the os can use it");
         }
     }
 
-    pub fn check_64_bit_addr_supported(&self) {
-        let cap = self.hba_regs.hostCapabilities;
+    pub unsafe fn check_64_bit_addr_supported(&self) {
+        let cap = (*self.hba_regs).hostCapabilities;
         let output = Self::general_bit_check(cap, 31);
         if output {
             info!("es werden 64 bit adressen unterstützt");
@@ -622,8 +622,8 @@ impl AhciController {
         }
     }
 
-    pub fn check_cap_nr_of_ports(&self) {
-        let cap = self.hba_regs.hostCapabilities;
+    pub unsafe fn check_cap_nr_of_ports(&self) {
+        let cap = (*self.hba_regs).hostCapabilities;
         let nr_of_ports = Self::general_bitlen_reader(cap, 0, 5);
         info!(
             "laut capabilities werden {} Ports unterstützt.",
@@ -631,8 +631,8 @@ impl AhciController {
         );
     }
 
-    pub fn check_nr_of_command_slots(&self) -> u32 {
-        let cap = self.hba_regs.hostCapabilities;
+    pub unsafe fn check_nr_of_command_slots(&self) -> u32 {
+        let cap = (*self.hba_regs).hostCapabilities;
         let nr_of_cmds = Self::general_bitlen_reader(cap, 8, 5);
         info!(
             "laut capabilities werden {} Command slots unterstützt.",
@@ -878,6 +878,10 @@ impl AhciController {
                 self.create_combined_hba_cmd_table(byte_count, dma_reg_addr);
             combined_cmd_table.cmd_table.commandFis = command_fis.clone();
             combined_cmd_table.cmd_table.atapiCommand = atapi_command.clone();
+            
+            //39, 128, 161 anstelle von 39 1 236
+            combined_cmd_table.cmd_table.commandFis[1] = 128;
+            combined_cmd_table.cmd_table.commandFis[2] = 236;
             info!(
                 "die combined cmd_table sieht so aus: {:?}",
                 combined_cmd_table
