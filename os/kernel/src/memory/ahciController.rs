@@ -56,10 +56,13 @@ enum DeviceSignature {
 }
 
 #[allow(warnings)]
+#[repr(C)]
+#[derive(Debug, Clone, Copy)]
 struct AhciController {
     hba_regs: *mut HBARegister,
-    ports: Vec<*mut HbaPort>,
+    ports_start: *mut HbaPort,
 }
+
 #[allow(warnings)]
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
@@ -358,10 +361,10 @@ pub fn init() {
         let mut ahci_controller = Arc::new(AhciController::new(device));
         info!(
             "der ahci controller hat die hba: {:?}",
-            ahci_controller.hba_regs
+            (*ahci_controller).hba_regs
         );
         info!("check, if bios handoff needed");
-        ahci_controller.check_bios_handoff();
+        (*ahci_controller).check_bios_handoff();
         info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
         info!("check if device has ahci mode enabled");
@@ -374,8 +377,9 @@ pub fn init() {
         ahci_controller.check_cap_nr_of_ports();
         info!("check nr of available command slots");
         ahci_controller.check_nr_of_command_slots();
-        info!("map all components");
-        ahci_controller.map_command_components();
+        //info!("map all components");
+        //ahci_controller.map_command_components();
+
         //info!("teste die Funktion um mehrere Bitfelder auszulesen");
         //let testoutput = ahci_controller.general_bitlen_reader(57105, 7, 5); // hier sollte 30 rauskommen, das passt
         //info!("testoutput ist {}", testoutput);
@@ -417,7 +421,7 @@ impl AhciController {
         unsafe { ahci_base_addr as *mut HBARegister }
     }
 
-    unsafe fn init_ports(ahci_base_addr: *mut u8, hba_ports: u32) -> Vec<*mut HbaPort> {
+    /*unsafe fn init_ports(&mut self, ahci_base_addr: *mut u8, hba_ports: u32) {
         //aus der hba ports variable muss erst mal die Anzahl der Ports bestimmt werden. Dazu muss die Anzahl der 1 in der Binaerform gezaehlt werden.
         info!("initialisiere die ports");
         let mut port_nr = 0;
@@ -427,16 +431,16 @@ impl AhciController {
             port_nr += 1;
         }
         info!("port anzahl = {:?}", port_nr);
-        let mut output: Vec<*mut HbaPort> = Vec::<*mut HbaPort>::new();
+        
         for i in 0..port_nr {
-            output.push(Self::get_port(ahci_base_addr, i));
+            self.ports_start.offset(i) = Self::get_port(ahci_base_addr, i.try_into().unwrap());
         }
-        output
-    }
+    }*/
 
-    fn get_port(ahci_base_addr: *mut u8, nr_of_port: u64) -> *mut HbaPort {
+    //unnötig, denn mit der offset und *mutHBAPort Funktion, sollte man immer einen Port nach dem anderen weitergehen können
+    /*fn get_port(ahci_base_addr: *mut u8, nr_of_port: u64) -> *mut HbaPort {
         unsafe { ahci_base_addr.offset((256 + (nr_of_port * 128)) as isize) as *mut HbaPort }
-    }
+    }*/
 
     fn get_cmd_table_header(start: *mut u8) -> *mut HbaCommandTableHeader {
         unsafe { start as *mut HbaCommandTableHeader }
@@ -457,13 +461,14 @@ impl AhciController {
         let ahci_base_addr = bar_mem.0 as *mut u8;
 
         //map the memory where the control registers are located
+        //hier muss der gesamte ahci controller gemappt werden!!, nicht nur die adressen
         Self::map_general(bar_mem.0 as u64, bar_mem.1 as u64, "ahci");
-        let hba = Self::get_hba_reg(ahci_base_addr);
 
-        Self {
-            hba_regs: hba,
-            ports: Self::init_ports(ahci_base_addr, (*hba).portsImplemented),
-        }
+        //der Controller startet auf den registern und daran hängen die ports
+        let mut ahci_controler = ahci_base_addr as *mut AhciController;
+        let output = (*ahci_controler);  
+        
+        output
     }
 
     //length is in bytes
@@ -488,11 +493,11 @@ impl AhciController {
         let start_page_frame =
             frames::frame_from_u64(address).expect("address is not page aligned");
 
-        let test = PhysFrameRange {
+        /*let test = PhysFrameRange {
             start: start_page_frame,
             end: start_page_frame + ((length + PAGE_SIZE as u64 - 1) / PAGE_SIZE as u64),
         };
-        info!("testframe is {:?}", test);
+        info!("testframe is {:?}", test);*/
 
         // Allocate virtual memory area for the non-volatile memory
         let vma = process
@@ -548,7 +553,9 @@ impl AhciController {
     }
 
     pub unsafe fn check_ports_for_device(&self) {
-        for current_port in self.ports.clone() {
+        let amt_port = (*self.hba_regs).portsImplemented;
+        for i in 0..amt_port -1 {
+            let current_port = self.ports_start.offset(i.try_into().unwrap());
             if Self::check_port_usable(current_port) {
                 let signature = (*current_port).signature;
                 info!(
@@ -599,6 +606,8 @@ impl AhciController {
 
     pub unsafe fn check_bios_handoff(&self) {
         //check if the version is high enough
+        info!("enter check bios handoff func");
+        let version = (*self.hba_regs).version;
         if (*self.hba_regs).version >= 0x10200 {
             info!("Version ist hoch genug");
             let ext_cap = (*self.hba_regs).extendedHostCapabilities;
@@ -644,20 +653,23 @@ impl AhciController {
         nr_of_cmds
     }
 
-    pub unsafe fn map_command_components(&self) {
+    /*pub unsafe fn map_command_components(&self) {
         for port in &self.ports {
             if Self::check_port_usable(*port) {
                 self.map_command_for_port(*port);
                 info!("port fertig gemappt");
             }
         }
-    }
+    }*/
+
+
+
     // es werden drei Strukturen gemappt:
     // die Command list structure besteht aus 32 Command headern. jeder header besteht aus 4 Dwords und 4 reserved Dwords
     // die Region für received fis werden direkt aus dem Port gelesen und hier können von eingehenden Fis Werte geschrieben werden
     // jeder header innerhalb der command list verweist auf eine eigene command table, in der command fis, atapi command und physical region descriptor table liegen
 
-    pub unsafe fn map_command_for_port(&self, port: *mut HbaPort) {
+    /*pub unsafe fn map_command_for_port(&self, port: *mut HbaPort) {
         self.stop_cmd_engine(port);
         //baue die Adresse für die 32 cmd header
         // die header zusammen bilden die command list
@@ -702,7 +714,7 @@ impl AhciController {
 
             self.start_cmd_engine(port);
         }
-    }
+    }*/
     //Diese Funktion testet, ob start und stop von command engine läuft
     /*pub unsafe fn test_ports_command_engine(&self){
         for port in self.ports{
@@ -745,12 +757,14 @@ impl AhciController {
         info!("kein Slot gefunden!");
         -1
     }
-    // hier darf clone verwendet werden, weil das Finden eines Slots nichts am Port verändert
-    pub unsafe fn find_slot_all_ports(&self) -> Option<*mut HbaPort> {
-        for port in &self.ports {
-            if Self::check_port_usable(port.clone()) {
-                if (self.find_cmd_slot(port.clone())) != -1 {
-                    return Some(port.clone());
+
+    pub unsafe fn find_slot_all_ports(&self) -> Option<*mut HbaPort>{
+        let amt_port = (*self.hba_regs).portsImplemented;
+        for i in 0..amt_port -1 {
+            let current_port = self.ports_start.offset(i.try_into().unwrap());
+            if Self::check_port_usable(current_port) {
+                if (self.find_cmd_slot(current_port)) != -1 {
+                    return Some(current_port);
                 }
             }
         }
@@ -785,7 +799,7 @@ impl AhciController {
             reserved2: 0,
         };
 
-        let port = self.ports[portnr as usize];
+        let port = self.ports_start.offset(portnr.try_into().unwrap());
         if (*port).signature == 257 {
             //port signature if it is an ata port
             host_to_device_fis.command = 236; //identification code for ata
@@ -868,7 +882,7 @@ impl AhciController {
         atapi_command: [u8; 16],
     ) -> Option<PhysFrameRange> {
         //info!("input is portnr{}, byte_count {}, command_fis{:?}, atapi_command{:?}", portnr, byte_count, command_fis, atapi_command);
-        let mut port = self.ports[portnr as usize];
+        let mut port = self.ports_start.offset(portnr.try_into().unwrap());
         //self.start_cmd_engine(port);
         info!("port in read from device ist {:?}", port);
         let mut command_list_addr = (*port).commandListBaseAddress as u64
@@ -1022,17 +1036,21 @@ impl AhciController {
     }*/
 
     //allocate memory into the heap
-    pub fn allocate_heap_region(size: u32) -> PhysFrameRange {
+    pub unsafe fn allocate_heap_region(size: u32) -> PhysFrameRange {
         let mut frame_count = size / 4096;
         if frame_count == 0 {
             frame_count += 1;
         }
 
-        let mut output = frames::alloc(frame_count as usize);
-        output
+        let mut allocated = frames::alloc(frame_count as usize);
+        let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
+
+        //schreibe 0 in die ganzen Felder
+        pointer.write_bytes(0, allocated.len().try_into().unwrap());
+        allocated
     }
 
-    pub fn allocate_dma_buffer(size: u32) -> PhysFrameRange {
+    pub unsafe fn allocate_dma_buffer(size: u32) -> PhysFrameRange {
         Self::allocate_heap_region(size)
     }
 
@@ -1050,7 +1068,7 @@ impl AhciController {
         // alloc frame nötig
         // dann addr weitergeben
         //später ggf mehrere frames nötig
-        let mut allocated = alloc(1);
+        let mut allocated = frames::alloc(1);
         let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
 
         //schreibe 0 in die ganzen Felder
@@ -1353,10 +1371,8 @@ impl HbaPort {
 //Comand Liste anschauen (es werden 31 command slots unterstützt) (es wird kein weiterer gefunden)
 //command table mit allen 32 headern versuchen zu allocaten
 
-//prdt mappen und genauer anschauen:
-//  das Feld prdt, welches aktuell noch zusammen ist, muss auf 8 begrenzt werden (fertig)
 
-//command table mit Werten befülen / mapping testen (command table ist zu groß und unbestimmt, als dass sie mit Werten gefüllt werden kann. aktuell ist die prdtl = 1)
+
 
 // Fehler werden mit f zu geschrieben, weil das -1 repräsentiert
 // Warum bekomme ich viele Ports mit der selben Adresse? gibt es nur einen Port, oder woran liegt das?  (aktuell existiert ein Port)
@@ -1374,7 +1390,12 @@ impl HbaPort {
 
 
 //map io passiert bei:
-//ahci register (vom Anfangs struct)
+//ahci register (vom Anfangs struct) (mit map general, sollte passen)
 //rebase port
-//allocate dma buffer
-//create command Table
+//allocate dma buffer   (fertig)
+//create command Table  (fertig)
+
+
+
+// bei der init muss der Port einfach so direkt an self drangemacht werden. es darf kein weiterer Vektor erzeugt werden
+//rebase port impl
