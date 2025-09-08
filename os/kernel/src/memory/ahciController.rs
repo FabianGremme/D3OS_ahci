@@ -368,6 +368,9 @@ pub fn init() {
         info!("check nr of available ports using capabilities");
         let amt_ports = ahci_controller.check_cap_nr_of_ports();
         info!("es werden {} viele ports unterstützt", amt_ports);
+        for i in 0..amt_ports{
+            ahci_controller.rebase_port(i);
+        }
         info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
         info!("check if device has ahci mode enabled");
@@ -752,6 +755,24 @@ impl AhciController {
         info!("port ist nun {:?}", port);
     }
 
+    pub unsafe fn rebase_port(&self, port_nr:u32){
+        
+        info!("portnr {} bekommt den rebase", port_nr);
+        let port = self.ports_start.offset(port_nr.try_into().unwrap());
+        if Self::check_port_usable(port) {
+        self.stop_cmd_engine(port);
+        let allocated = frames::alloc(1);
+        let full_addr =  allocated.start.start_address().as_u64();
+        let lower_addr = full_addr as u32;
+        let upper_addr = (full_addr >> 32) as u32;
+        (*port).commandListBaseAddress = lower_addr;
+        (*port).commandListBaseAddressUpper = upper_addr;
+        self.start_cmd_engine(port);
+        info!("rebase of port {} done", port_nr);
+        }
+        
+    }
+
     //finden eines freien command headers über den port
     pub unsafe fn find_cmd_slot(&self, mut port: *mut HbaPort) -> i32 {
         let nr_cmd_slots = self.check_nr_of_command_slots();
@@ -780,6 +801,8 @@ impl AhciController {
         }
         None
     }
+
+
 
     // fis steht für frame information structure
 
