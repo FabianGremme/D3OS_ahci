@@ -364,7 +364,10 @@ pub fn init() {
             (*ahci_controller).hba_regs
         );
         info!("check, if bios handoff needed");
-        (*ahci_controller).check_bios_handoff();
+        ahci_controller.check_bios_handoff();
+        info!("check nr of available ports using capabilities");
+        let amt_ports = ahci_controller.check_cap_nr_of_ports();
+        info!("es werden {} viele ports unterstützt", amt_ports);
         info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
         info!("check if device has ahci mode enabled");
@@ -417,9 +420,9 @@ pub fn init() {
 }
 #[allow(warnings)]
 impl AhciController {
-    fn get_hba_reg(ahci_base_addr: *mut u8) -> *mut HBARegister {
+    /*fn get_hba_reg(ahci_base_addr: *mut u8) -> *mut HBARegister {
         unsafe { ahci_base_addr as *mut HBARegister }
-    }
+    }*/
 
     /*unsafe fn init_ports(&mut self, ahci_base_addr: *mut u8, hba_ports: u32) {
         //aus der hba ports variable muss erst mal die Anzahl der Ports bestimmt werden. Dazu muss die Anzahl der 1 in der Binaerform gezaehlt werden.
@@ -460,15 +463,20 @@ impl AhciController {
 
         let ahci_base_addr = bar_mem.0 as *mut u8;
 
+        
+
+        //der Controller startet auf den registern und daran hängen die ports
+        
+
         //map the memory where the control registers are located
         //hier muss der gesamte ahci controller gemappt werden!!, nicht nur die adressen
         Self::map_general(bar_mem.0 as u64, bar_mem.1 as u64, "ahci");
 
-        //der Controller startet auf den registern und daran hängen die ports
-        let mut ahci_controler = ahci_base_addr as *mut AhciController;
-        let output = (*ahci_controler);  
-        
-        output
+        let mut hba_regs = ahci_base_addr as *mut HBARegister;
+
+        let ports_start = hba_regs.offset(1) as *mut HbaPort;
+
+        AhciController { hba_regs, ports_start}
     }
 
     //length is in bytes
@@ -553,7 +561,7 @@ impl AhciController {
     }
 
     pub unsafe fn check_ports_for_device(&self) {
-        let amt_port = (*self.hba_regs).portsImplemented;
+        let amt_port = self.check_cap_nr_of_ports();
         for i in 0..amt_port -1 {
             let current_port = self.ports_start.offset(i.try_into().unwrap());
             if Self::check_port_usable(current_port) {
@@ -634,14 +642,16 @@ impl AhciController {
         }
     }
 
-    pub unsafe fn check_cap_nr_of_ports(&self) {
+    pub unsafe fn check_cap_nr_of_ports(&self) -> u32{
         let cap = (*self.hba_regs).hostCapabilities;
         let nr_of_ports = Self::general_bitlen_reader(cap, 0, 5);
-        info!(
+        /*info!(
             "laut capabilities werden {} Ports unterstützt.",
             nr_of_ports
-        );
+        );*/
+        nr_of_ports
     }
+
 
     pub unsafe fn check_nr_of_command_slots(&self) -> u32 {
         let cap = (*self.hba_regs).hostCapabilities;
