@@ -112,7 +112,7 @@ struct HbaPort {
 #[derive(Debug, Clone, Copy)]
 struct HbaCommandTableHeader {
     // DWORD 0
-    first: u32, //ReadWrite<u32, D0::Register>,
+    dword0: u32, //ReadWrite<u32, D0::Register>,
 
     // DWORD 1
     physicalRegionDescriptorByteCount: u32,
@@ -132,7 +132,7 @@ struct HbaPhysicalRegionDescriptorTableEntry {
     dataBaseAddress: u32,
     dataBaseAddressUpper: u32,
     reserved1: u32,
-    rest: u32,
+    databytecount_and_interruptOnCompletion: u32,
     //uint32_t dataByteCount: 22;
     //uint32_t reserved2: 9;
     //uint32_t interruptOnCompletion: 1;
@@ -276,7 +276,7 @@ struct DeviceInfo {
 struct FisRegisterHostToDevice {
     // DWORD 0
     typ: u8,
-    combined: u8,
+    port_mult_and_cmd_ctrl: u8,
 
     //uint8_t portMultiplierPort: 4;
     //uint8_t reserved1: 3;
@@ -663,7 +663,7 @@ impl AhciController {
         // das muss noch in den command fis gelegt werden
         let mut host_to_device_fis = FisRegisterHostToDevice {
             typ: 39,
-            combined: 128,
+            port_mult_and_cmd_ctrl: 128,
             command: 0,
             featureLow: 0,
             lba0: 0,
@@ -767,7 +767,7 @@ impl AhciController {
             let combined = (physical_region_descriptor_table_length << 16) as u32
                 | (atapi << 5) as u32
                 | cmd_fis_len as u32;
-            (*first_cmd_header).first = combined;
+            (*first_cmd_header).dword0 = combined;
             info!("combined ist {:b}", combined);
 
             (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
@@ -838,7 +838,7 @@ impl AhciController {
             let mut descriptor = output.offset(1) as *mut HbaPhysicalRegionDescriptorTableEntry;
             (*descriptor).dataBaseAddress = physical_dma_buffer as u32;
             (*descriptor).dataBaseAddressUpper = (physical_dma_buffer >> 32) as u32;
-            (*descriptor).rest = byte_count -1;
+            (*descriptor).databytecount_and_interruptOnCompletion = byte_count -1;
             info!("done");
         } else {
             // hier muss noch ordentlich berechnet werden, wie viele Seiten man jetzt braucht. ich teste erst mal mit einer Seite
