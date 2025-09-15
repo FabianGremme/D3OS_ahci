@@ -107,35 +107,6 @@ struct HbaPort {
     vendorSpecific: [u32; 4],
 }
 
-/*
-#[repr(C, packed)]
-#[derive(Debug, Clone, Copy)]
-struct HbaCommandHeader {
-    // DWORD 0
-    uint8_t commandFisLength: 5;
-    uint8_t atapi: 1;
-    uint8_t write: 1;
-    uint8_t prefetchable: 1;
-
-    uint8_t reset: 1;
-    uint8_t bist: 1;
-    uint8_t clearBusyOnOK: 1;
-    uint8_t reserved1: 1;
-    uint8_t portMultiplierPort: 4;
-
-    physicalRegionDescriptorTableLength: u16,
-
-    // DWORD 1
-    physicalRegionDescriptorByteCount: u32,
-
-    // DWORD 2-3
-    commandTableDescriptorBaseAddress: u32,
-    commandTableDescriptorBaseAddressUpper: u32,
-
-    // DWORD 4-7
-    reserved: [u32;4],
-}*/
-
 #[allow(warnings)]
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
@@ -153,16 +124,6 @@ struct HbaCommandTableHeader {
     // DWORD 4-7
     reserved: [u32; 4],
 }
-
-//Laut Bachelorarbeit soll eine combined HBA Command Table aus einer cmd_table und 8 Einheiten der Liste entstehen
-/*
-#[allow(warnings)]
-#[derive(Debug)]
-struct combined_HBA_CommandTable {
-    cmd_table: & 'static mut HbaCommandTable,
-    physicalRegionDescriptorTable: Vec<HbaPhysicalRegionDescriptorTableEntry>,
-}
-*/
 
 #[allow(warnings)]
 #[repr(C, packed)]
@@ -381,31 +342,18 @@ pub fn init() {
         ahci_controller.check_64_bit_addr_supported();
         info!("check nr of available command slots");
         ahci_controller.check_nr_of_command_slots();
-        //info!("map all components");
-        //ahci_controller.map_command_components();
+
 
         //info!("teste die Funktion um mehrere Bitfelder auszulesen");
         //let testoutput = ahci_controller.general_bitlen_reader(57105, 7, 5); // hier sollte 30 rauskommen, das passt
         //info!("testoutput ist {}", testoutput);
 
-        //info!("before cmd");
-        //ahci_controller.test_ports_command_engine();
-        //info!("after cmd");
+
         ahci_controller.find_slot_all_ports();
         info!("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nidentify the current device");
         let id_device = ahci_controller.identify_device(0);
         info!("id device is {:?}", id_device);
 
-        /*let mut var:Box<u32> = Box::new(4000);
-        info!("size of var ist {:?}", size_of_val(&var));
-        let mut pointer: *mut u32 = Box::into_raw(var);
-        info!("pointer ist bei {:?}", pointer);
-        let test_cmd_table = ahci_controller.create_combined_hba_cmd_table(1, pointer);
-        info!("die erzeugte combined cmd table ist {:?}", test_cmd_table);
-        let testregion = AhciController::allocate_heap_region(40);
-        info!("testregion im heap ist {:?}", testregion);
-        */
-        //let model_nr = id_device.clone();
         let serial_nr = id_device.serialNumber.clone();
         let serial_str = String::from_utf8(Vec::from(serial_nr)).unwrap();
         let firmware_rev = id_device.firmwareRevision.clone();
@@ -421,30 +369,6 @@ pub fn init() {
 }
 #[allow(warnings)]
 impl AhciController {
-    /*fn get_hba_reg(ahci_base_addr: *mut u8) -> *mut HBARegister {
-        unsafe { ahci_base_addr as *mut HBARegister }
-    }*/
-
-    /*unsafe fn init_ports(&mut self, ahci_base_addr: *mut u8, hba_ports: u32) {
-        //aus der hba ports variable muss erst mal die Anzahl der Ports bestimmt werden. Dazu muss die Anzahl der 1 in der Binaerform gezaehlt werden.
-        info!("initialisiere die ports");
-        let mut port_nr = 0;
-        let mut calc = hba_ports;
-        while calc != 0 {
-            calc = calc & (calc - 1);
-            port_nr += 1;
-        }
-        info!("port anzahl = {:?}", port_nr);
-
-        for i in 0..port_nr {
-            self.ports_start.offset(i) = Self::get_port(ahci_base_addr, i.try_into().unwrap());
-        }
-    }*/
-
-    //unnötig, denn mit der offset und *mutHBAPort Funktion, sollte man immer einen Port nach dem anderen weitergehen können
-    /*fn get_port(ahci_base_addr: *mut u8, nr_of_port: u64) -> *mut HbaPort {
-        unsafe { ahci_base_addr.offset((256 + (nr_of_port * 128)) as isize) as *mut HbaPort }
-    }*/
 
     fn get_cmd_table_header(start: *mut u8) -> *mut HbaCommandTableHeader {
         unsafe { start as *mut HbaCommandTableHeader }
@@ -662,76 +586,7 @@ impl AhciController {
         );
         nr_of_cmds
     }
-
-    /*pub unsafe fn map_command_components(&self) {
-        for port in &self.ports {
-            if Self::check_port_usable(*port) {
-                self.map_command_for_port(*port);
-                info!("port fertig gemappt");
-            }
-        }
-    }*/
-
-    // es werden drei Strukturen gemappt:
-    // die Command list structure besteht aus 32 Command headern. jeder header besteht aus 4 Dwords und 4 reserved Dwords
-    // die Region für received fis werden direkt aus dem Port gelesen und hier können von eingehenden Fis Werte geschrieben werden
-    // jeder header innerhalb der command list verweist auf eine eigene command table, in der command fis, atapi command und physical region descriptor table liegen
-
-    /*pub unsafe fn map_command_for_port(&self, port: *mut HbaPort) {
-        self.stop_cmd_engine(port);
-        //baue die Adresse für die 32 cmd header
-        // die header zusammen bilden die command list
-        let first_cmd_header_addr: u64 = (*port).commandListBaseAddress as u64
-            | (((*port).commandListBaseAddressUpper as u64) << 32);
-        let size_cmd_header = 1024;
-
-        //baue die Adresse für die received FIS
-        let received_fis: u64 =
-            (*port).fisBaseAddress as u64 | (((*port).fisBaseAddressUpper as u64) << 32);
-        let size_received_fis = 256;
-        //info!("die Addressen sind: cmd_header: {:x}, received_fis: {:x}", first_cmd_header_addr, received_fis);
-        unsafe {
-            //falls zwei memory spaces auf je kleiner als eine Seite sind, wird nach den Startadressen abhängig gemacht,
-            // ob sie spaces sich die Page teilen, oder separate Pages erhalten
-
-            if received_fis - first_cmd_header_addr >= PAGE_SIZE as u64 {
-                Self::map_general(first_cmd_header_addr, PAGE_SIZE as u64, "cmd_hd");
-                Self::map_general(received_fis, PAGE_SIZE as u64, "rc_fis");
-            } else {
-                // cmd header ist vor page size. beide sind kleiner als eine Page, also teilen sie sich zwei Seiten
-                Self::map_general(first_cmd_header_addr, 2 * PAGE_SIZE as u64, "cmd_and_fis");
-            }
-
-            //test if the cmd_List has a
-            let cmd_header1 = Self::get_cmd_table_header(first_cmd_header_addr as *mut u8);
-            //info!("the first command header struct has the following values: {:?}", cmd_header1);
-            // hier werden die einzelnen Werte von cmd_header1 wie prdt, etc ausgeschrieben
-            let full_register = (*cmd_header1).first;
-            let prdt = AhciController::general_bitlen_reader(full_register, 16, 16);
-            //info!("prdt ist {:?}", prdt);
-
-            //map the first command table with the info of the first command header
-            let first_cmd_table_addr = (*cmd_header1).commandTableDescriptorBaseAddress as u64
-                | (((*cmd_header1).commandTableDescriptorBaseAddressUpper as u64) << 32);
-            //info!("the first_cmd_table_addr is {:x}", first_cmd_table_addr);
-            // das ist die Größe aus der combined command table mit 8 Inhalten
-            let cmd_table_size = 256;
-            Self::map_general(first_cmd_table_addr, PAGE_SIZE as u64, "cmd_tbl");
-
-            //check, if the first command table has actual values inside it
-
-            self.start_cmd_engine(port);
-        }
-    }*/
-    //Diese Funktion testet, ob start und stop von command engine läuft
-    /*pub unsafe fn test_ports_command_engine(&self){
-        for port in self.ports{
-            if Self::check_port_usable(port){
-                self.start_cmd_engine(port);
-                self.stop_cmd_engine(port);
-            }
-        }
-    }*/
+    
     pub unsafe fn start_cmd_engine(&self, mut port: *mut HbaPort) {
         info!("port ist nun {:?}", port);
         while ((*port).command & COMMAND_LIST_RUNNING) > 0 {
@@ -833,8 +688,6 @@ impl AhciController {
         } else {
             host_to_device_fis.command = 161; //identification code for atapi
         }
-        info!("found port is {:?}", port);
-        info!("host_to_device_fis is {:?}", host_to_device_fis);
 
         // copy the info from the struct into the memory region
         unsafe {
@@ -842,7 +695,6 @@ impl AhciController {
             let src = &host_to_device_fis as *const FisRegisterHostToDevice as *const u8;
             ptr::copy_nonoverlapping(src, ptr, size_of::<FisRegisterHostToDevice>());
         }
-        info!("new command fis is now {:?}\n\n\n\n\n\n\n", command_fis);
 
         //ist das die richtige Umwandlung von der phys frame range?
         let mut info = self
@@ -850,57 +702,12 @@ impl AhciController {
             .unwrap();
         let mut info_ptr = info.start.start_address().as_u64();
         let mut output = info_ptr as *mut DeviceInfo;
-        info!("Output after: {:?}", unsafe { output.read() });
         unsafe { output.read() }
     }
 
-    //Befehl für identify device:
-    /*AhciController::DeviceInfo* AhciController::identifyDevice(uint32_t portNumber) {
-    uint8_t commandFis[64]{};
-    uint8_t atapiCommand[16]{};
+    
 
-    //hier wird das Fis zusammengebaut
-    auto &hostToDeviceFis = reinterpret_cast<FisRegisterHostToDevice>(commandFis);
-    hostToDeviceFis.type = REGISTER_HOST_TO_DEVICE;
-    hostToDeviceFis.commandControl = 1;
-    hostToDeviceFis.command = registers->ports[portNumber].signature == ATA ? ATA_IDENTIFY : ATAPI_IDENTIFY;
-
-    //hier wird das abgesendet
-    auto info = static_cast<DeviceInfo>(readFromDevice(portNumber, 512, commandFis, atapiCommand));
-    //info ist wohl hier das device info, welches man aus readFromDevice bekommen hat
-    if (info != nullptr) {
-    Auslesen der info Werte
-    byteSwapString(reinterpret_cast<char>(info->model), sizeof(DeviceInfo::model));
-    byteSwapString(reinterpret_cast<char>(info->serialNumber), sizeof(DeviceInfo::serialNumber));
-    byteSwapString(reinterpret_cast<char*>(info->firmwareRevision), sizeof(DeviceInfo::firmwareRevision));
-    }
-
-    return info;
-    }*/
-
-    /*pub unsafe fn create_combined_hba_cmd_table(
-        &self,
-        byte_count: u32,
-        physical_dma_buffer: *mut u32,
-    ) -> combined_HBA_CommandTable {
-        let cmd_table = self.create_hba_cmd_table();
-        let mut descriptor_count;
-        if byte_count / 4096 == 0 {
-            descriptor_count = (byte_count / 4096) + 1;
-        } else {
-            descriptor_count = byte_count / 4096;
-        }
-        info!("descriptor count ist {}", descriptor_count);
-        let cmd_vec = self.create_cmd_vec(byte_count, physical_dma_buffer, descriptor_count);
-
-        combined_HBA_CommandTable {
-            cmd_table,
-            physicalRegionDescriptorTable: cmd_vec,
-        }
-    }
-    */
-
-    //innerhalb der clb gibt es eine command liste
+    
     pub unsafe fn read_from_device(
         &self,
         portnr: u32,
@@ -908,22 +715,14 @@ impl AhciController {
         mut command_fis: [u8; 64],
         atapi_command: [u8; 16],
     ) -> Option<PhysFrameRange> {
-        //info!("input is portnr{}, byte_count {}, command_fis{:?}, atapi_command{:?}", portnr, byte_count, command_fis, atapi_command);
         let mut port = self.ports_start.offset(portnr.try_into().unwrap());
-        //self.start_cmd_engine(port);
-        info!("port in read from device ist {:?}", port);
         let mut command_list_addr = (*port).commandListBaseAddress as u64
             | (((*port).commandListBaseAddressUpper as u64) << 32);
         unsafe {
             // weil ich nur bisher einen cmd_header in der Liste habe, kann ich da direkt reinschreiben
             let mut first_cmd_header = Self::get_cmd_table_header(command_list_addr as *mut u8);
             //die command List besteht aus cmd_table_headern, welche selbst dann auf die command Table verweisen
-            info!(
-                "first_cmd_header in read from device is {:?}",
-                first_cmd_header
-            );
 
-            // hier noch ein paar Hilfen
             if Self::check_port_usable(port) != true {
                 info!("ERR: Port is not usable");
                 return None;
@@ -941,18 +740,9 @@ impl AhciController {
 
             // hier wird nur die command table gemacht, nicht die command list
             let mut cmd_table = self.create_hba_cmd_table(byte_count, dma_reg_addr);
-
-            //byte_count, dma_reg_addr
-
             cmd_table.commandFis = command_fis.clone();
             cmd_table.atapiCommand = atapi_command.clone();
 
-            //39, 128, 161 anstelle von 39 128 236
-            cmd_table.commandFis[1] = 128;
-            cmd_table.commandFis[2] = 236;
-            info!("die cmd_table sieht so aus: {:?}", cmd_table);
-
-            // jetzt wird in die command list geschrieben
 
             let mut physical_region_descriptor_table_length = byte_count / 4096;
             if physical_region_descriptor_table_length == 0 {
@@ -961,25 +751,16 @@ impl AhciController {
 
             //nachschauen, wie ich auf diese Größen komme
             let mut cmd_fis_len = size_of::<FisRegisterHostToDevice>() / size_of::<u32>();
-            let mut atapi = 0; //atapi ist aktuell 0
+            let mut atapi = 0; //atapi ist 0 weil id device für ata und atapi geräte universell ist
             if atapi_command[0] != 0 {
                 atapi = 1;
             }
-
-            // teste ob addr_of_mut funktioniert
-            // hier könnte ein Fehler sein?
-            // muss das struct an die genaue addressse gesetzt werden?
+            //zerteile die Adresse
             let cmd_table_base_addr: u64 = ptr::from_mut(cmd_table) as u64;
             let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
             let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
-            info!(
-                "die addr sind: {} und upper {}",
-                lower_cmd_table_base_addr, upper_cmd_table_base_addr
-            );
-            //VMA DeviceMemory, [0xdef6000; 0xdef7000], #pages: 1, tag: "cmd_tbl-", aber die addressen passen nicht
-            //lower ist 0x1f90108 upper ist 0
 
-            //alles zu dem first zusammenfügen (atapi, cmd_fis_len und prdt_len)
+            //Feld first zusammenbauen (atapi, cmd_fis_len und prdt_len)
             // atapi ist 0, weil es ein ata Befehl ist
             // cmd_fis_len ist 5
             //prdt_len ist 1 (weil nur eine prdt benötigt wird)
@@ -987,82 +768,28 @@ impl AhciController {
                 | (atapi << 5) as u32
                 | cmd_fis_len as u32;
             (*first_cmd_header).first = combined;
-            info!("combined ist {:b}", combined); //combined sollte passen
+            info!("combined ist {:b}", combined);
 
             (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
             (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
-            // warum hat sich hier etwas verändert??
+
             info!("first_cmd_header ist {:?}", first_cmd_header);
 
             let mut output = dma_reg_addr as *mut DeviceInfo;
             info!("Output before: {:?}", unsafe { output.read() });
 
-            // hier wären noch ein paar Fehlerabfragen
             let success = (*port).issueCommand(slot as u32);
-            info!("success ist {}\n\n\n\n\n\n\n\n\n\n", success);
-            //aktuell ist success = false, was schlecht ist
+            if !success{
+                info!("ERR: issueCommand hatte einen Fehler")
+            }
 
             Some(dma_reg)
         }
     }
 
-    /*
-        void* AhciController::readFromDevice(uint32_t portNumber, uint32_t byteCount, const uint8_t commandFis[64], const uint8_t atapiCommand[16]) {
 
-        //suche den richtigen Port und richtige command list
-        auto &memoryService = Kernel::Service::getService<Kernel::MemoryService>();
-        auto &port = registers->ports[portNumber];
 
-        // in seiner impl hat er eine ref zu jeder cmd liste
-        auto commandList = virtualCommandLists[portNumber];     //wie ist virtualCommandLists? // in der HBA gibt es eine Liste, in der alle command header drin sind?
-
-        //einige Sicherheitssachen
-        portLocks[portNumber].acquire();
-
-        if (!port.isActive()) {
-            portLocks[portNumber].release();
-            return nullptr;
-        }
-        // finde den richtigen header, an den etwas geschrieben werden kann
-        auto slot = findCommandSlot(portNumber);
-
-        if (slot == UINT32_MAX) {
-            portLocks[portNumber].release();
-            return nullptr;
-        }
-
-        auto dmaBuffer = allocateDmaBuffer(byteCount);
-        auto physicalDmaAddress = memoryService.getPhysicalAddress(dmaBuffer);
-
-        //copy von allen wichtigen Werten
-        auto commandTable = HbaCommandTable::createCommandTable(byteCount, physicalDmaAddress);
-        Util::Address(commandTable->commandFis).copyRange(Util::Address(commandFis), sizeof(HbaCommandTable::commandFis));
-        Util::Address(commandTable->atapiCommand).copyRange(Util::Address(atapiCommand), sizeof(HbaCommandTable::atapiCommand));
-
-        // nachdem die command table fertig ist, muss noch der Header der command table richtig mit Werten befüllt werden
-        auto &commandHeader = commandList[slot];
-        commandHeader.clear();
-        commandHeader.physicalRegionDescriptorTableLength = byteCount % BYTES_PER_DESCRIPTOR_ENTRY == 0 ? (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) : (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) + 1;
-        commandHeader.commandFisLength = sizeof(FisRegisterHostToDevice) / sizeof(uint32_t);
-        commandHeader.commandTableDescriptorBaseAddress = reinterpret_cast<uint32_t>(memoryService.getPhysicalAddress(commandTable));
-        commandHeader.atapi = atapiCommand[0] == 0 ? 0 : 1;
-
-        //issue device sendet dann den Befehl rüber
-        if (!port.issueCommand(slot)) {
-            portLocks[portNumber].release();
-            delete reinterpret_cast<uint8_t*>(dmaBuffer);
-            delete commandTable;
-            return nullptr;
-        }
-
-        // am Ende soll wohl alles im dmaBuffer stehen
-        // unsicher, ob das so mit dem Typ richtig ist, oder ich da noch was machen muss
-        portLocks[portNumber].release();
-        delete commandTable;
-        return dmaBuffer;
-    }*/
-
-    //allocate memory into the heap
+    //heap Speicher alloziieren
     pub unsafe fn allocate_heap_region(size: u32) -> PhysFrameRange {
         let mut frame_count = size / 4096;
         if frame_count == 0 {
@@ -1122,61 +849,7 @@ impl AhciController {
         output.as_mut().unwrap()
     }
 
-    /*
-    pub fn create_cmd_vec(
-        &self,
-        byte_count: u32,
-        physical_dma_buffer: *mut u32,
-        descriptor_count: u32,
-    ) -> Vec<HbaPhysicalRegionDescriptorTableEntry> {
-
-        //darf kein vec sein
-        let mut output: Vec<HbaPhysicalRegionDescriptorTableEntry> =
-            Vec::<HbaPhysicalRegionDescriptorTableEntry>::new();
-        unsafe {
-            for i in 0..descriptor_count {
-                info!("dma_buffer is at {:p}", physical_dma_buffer);
-                let remaining_count = byte_count - (i * 4096);
-                let mut entry_byte_count = 4096 - 1;
-                if remaining_count < 4096 {
-                    entry_byte_count = remaining_count - 1;
-                }
-                let new_entry = HbaPhysicalRegionDescriptorTableEntry {
-                    dataBaseAddress: physical_dma_buffer.offset((i * 4096) as isize),
-                    dataBaseAddressUpper: null::<u32>().cast_mut(),
-                    reserved1: 0,
-                    rest: entry_byte_count << 10,
-                };
-                output.push(new_entry);
-            }
-        }
-        output
-    }*/
-
-    /*AhciController::HbaCommandTable * AhciController::HbaCommandTable::createCommandTable(uint32_t byteCount, void physicalDmaBuffer) {
-
-    #auto &memoryService = Kernel::Service::getService<Kernel::MemoryService>();
-
-    //also dividieren und falls 0, dann ein mehr?
-    #auto descriptorCount = byteCount % BYTES_PER_DESCRIPTOR_ENTRY == 0 ? (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) : (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) + 1;
-
-    // hier wird die gesamte größe fürs Mapping berechnet (noch zu tun?)
-    auto tableSize = sizeof(commandFis) + sizeof(atapiCommand) + sizeof(reserved) + descriptorCount * sizeof(HbaPhysicalRegionDescriptorTableEntry);
-    auto tablePages = tableSize % Util::PAGESIZE == 0 ? (tableSize / Util::PAGESIZE) : (tableSize / Util::PAGESIZE) + 1;    //ist am Ende 1
-
-    // an Addr für command table wird das Struct gesetzt (ist das nicht schon so impl?)
-    auto commandTable = reinterpret_cast<HbaCommandTable>(memoryService.mapIO(tablePages));
-    Util::Address(commandTable).setRange(0, tableSize);
-
-    #for (uint32_t i = 0; i < descriptorCount; i++) {
-       # auto &entry = commandTable->physicalRegionDescriptorTable[i];
-
-        #uint32_t remainingBytes = byteCount - (i * BYTES_PER_DESCRIPTOR_ENTRY);
-        #entry.dataBaseAddress = reinterpret_cast<uint32_t>(physicalDmaBuffer) + i * BYTES_PER_DESCRIPTOR_ENTRY;
-        #entry.dataByteCount = (remainingBytes < BYTES_PER_DESCRIPTOR_ENTRY ? remainingBytes : BYTES_PER_DESCRIPTOR_ENTRY) - 1;
-    }
-    #return commandTable;
-    }*/
+    
 
     //write to device:
     /*
@@ -1310,43 +983,6 @@ impl AhciController {
     }*/
 }
 
-/*
-bool AhciController::HbaPort::issueCommand(uint8_t slot) {
-    // Wait while device is busy
-    uint32_t timeout = Util::Time::Timestamp::getSystemTime().toMilliseconds() + COMMAND_TIMEOUT;
-    while (taskFileData & (BUSY | DATA_TRANSFER_REQUESTED)) {
-        if (Util::Time::Timestamp::getSystemTime().toMilliseconds() >= timeout) {
-            return false;
-        }
-
-        Util::Async::Thread::yield();
-    }
-
-    // Issue command
-    commandIssue = 1 << slot;
-
-    // Wait for command completion
-    timeout = Util::Time::Timestamp::getSystemTime().toMilliseconds() + COMMAND_TIMEOUT;
-    while (true) {
-        if (!(commandIssue & (1 << slot))) {
-            break;
-        }
-
-        if (interruptStatus & TASK_FILE_ERROR) {
-            return false;
-        }
-
-        if (Util::Time::Timestamp::getSystemTime().toMilliseconds() >= timeout) {
-            return false;
-        }
-
-        Util::Async::Thread::yield();
-    }
-
-    return true;
-}
-
- */
 
 #[allow(warnings)]
 impl HbaPort {
