@@ -352,14 +352,19 @@ pub fn init() {
         let id_device = ahci_controller.identify_device(0);
         info!("id device is {:?}", id_device);
 
-        let serial_nr = id_device.serialNumber.clone();
+        let mut model = id_device.model.clone();
+        ahci_controller.byte_swap(model.as_mut_ptr(), model.len().try_into().unwrap());
+        let model_str = String::from_utf8(Vec::from(model)).unwrap();
+        let mut serial_nr = id_device.serialNumber.clone();
+        ahci_controller.byte_swap(serial_nr.as_mut_ptr(), serial_nr.len().try_into().unwrap());
         let serial_str = String::from_utf8(Vec::from(serial_nr)).unwrap();
-        let firmware_rev = id_device.firmwareRevision.clone();
+        let mut firmware_rev = id_device.firmwareRevision.clone();
+        ahci_controller.byte_swap(firmware_rev.as_mut_ptr(), firmware_rev.len().try_into().unwrap());
         let firmware_str = String::from_utf8(Vec::from(firmware_rev)).unwrap();
 
         info!(
-            "die neue serial nr ist {}, und die neue firmware ist {}",
-            serial_str, firmware_str
+            "model ist {}, firmware ist {}, seriennummer ist {}",
+            model_str, firmware_str, serial_str
         );
     }
 
@@ -835,6 +840,14 @@ impl AhciController {
         output.as_mut().unwrap()
     }
 
+    pub unsafe fn byte_swap(&self, input: *mut u8, len: isize) {
+        for i in (0..len).step_by(2) {
+            let swap = *input.offset(i);
+            *input.offset(i) = *input.offset(i +1);
+            *input.offset(i+1) = swap;
+        }
+    }
+
     //write to device:
     /*
         bool AhciController::writeToDevice(uint32_t portNumber, void *physicalDmaAddress, uint32_t byteCount, const uint8_t *commandFis, const uint8_t *atapiCommand) {
@@ -939,19 +952,19 @@ impl AhciController {
         // cmd_fis_len ist 5
         //prdt_len ist 1 (weil nur eine prdt benötigt wird)
         let dword0 = (physical_region_descriptor_table_length << 16) as u32
-                | (atapi << 5) as u32
-                | cmd_fis_len as u32;
-            (*first_cmd_header).dword0 = dword0;
-            info!("dword0 ist {:b}", dword0);
+            | (atapi << 5) as u32
+            | cmd_fis_len as u32;
+        (*first_cmd_header).dword0 = dword0;
+        info!("dword0 ist {:b}", dword0);
 
-            (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
-            (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
+        (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
+        (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
 
         let success = (*port).issueCommand(slot as u32);
-            if !success {
-                info!("ERR: issueCommand hatte einen Fehler");
-                return false;
-            }
+        if !success {
+            info!("ERR: issueCommand hatte einen Fehler");
+            return false;
+        }
 
         return true;
     }
