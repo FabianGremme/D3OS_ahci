@@ -38,6 +38,17 @@ const FIS_RECIVE_ENABLE: u32 = 1 << 4;
 const FIS_RECEIVE_RUNNING: u32 = 1 << 14;
 const COMMAND_LIST_RUNNING: u32 = 1 << 15;
 
+//command
+const ATA_IDENTIFY: u8 = 0xec;
+const ATAPI_IDENTIFY: u8 = 0xa1;
+const READ_DMA: u8 = 0xc8;
+const READ_DMA_EX: u8 = 0x25;
+const WRITE_DMA: u8 = 0xca;
+const WRITE_DMA_EX: u8 = 0x35;
+const ATA_PACKET: u8 = 0xa0;
+const ATAPI_READ: u8 = 0xa8;
+const ATAPI_READ_CAPACITY: u8 = 0x25;
+
 enum BiosHandoffFlags {
     BIOS_OWNED_SEMAPHORE = 1 << 0,
     OS_OWNED_SEMAPHORE = 1 << 1,
@@ -53,6 +64,12 @@ enum DeviceSignature {
     ATAPI = 0xeb140101,
     ENCLOSURE_POWER_MANAGEMENT_BRIDGE = 0xc33c0101,
     PORT_MULTIPLIER = 0x96690101,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TransferMode {
+    READ = 0x0,
+    WRITE = 0x1,
 }
 
 #[allow(warnings)]
@@ -359,13 +376,30 @@ pub fn init() {
         ahci_controller.byte_swap(serial_nr.as_mut_ptr(), serial_nr.len().try_into().unwrap());
         let serial_str = String::from_utf8(Vec::from(serial_nr)).unwrap();
         let mut firmware_rev = id_device.firmwareRevision.clone();
-        ahci_controller.byte_swap(firmware_rev.as_mut_ptr(), firmware_rev.len().try_into().unwrap());
+        ahci_controller.byte_swap(
+            firmware_rev.as_mut_ptr(),
+            firmware_rev.len().try_into().unwrap(),
+        );
         let firmware_str = String::from_utf8(Vec::from(firmware_rev)).unwrap();
 
         info!(
             "model ist {}, firmware ist {}, seriennummer ist {}",
             model_str, firmware_str, serial_str
         );
+        
+        info!("teste ob ataIO funktioniert!");
+        let sector_size = id_device.bytesPerSector;
+        const read_bytes:u32 = 512 * 5;
+        let single_region = AhciController::allocate_heap_region(read_bytes);
+        info!("die region ist {:?}", single_region);
+        ahci_controller.performAtaIO(0, id_device, TransferMode::READ, single_region, 0, 1);
+        info!("read from single region done");
+        // jetzt muss noch die PhysFrameRange umgewandelt werden, damit man daraus lesen kann
+
+        let mut region_ptr = single_region.start.start_address().as_u64();
+        let mut readable_array = region_ptr as *mut [u8; read_bytes as usize];
+        info!("das gelesene array ist: {:?}", *readable_array);
+
     }
 
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
@@ -686,9 +720,9 @@ impl AhciController {
         let port = self.ports_start.offset(portnr.try_into().unwrap());
         if (*port).signature == 257 {
             //port signature if it is an ata port
-            host_to_device_fis.command = 236; //identification code for ata
+            host_to_device_fis.command = ATA_IDENTIFY; //identification code for ata
         } else {
-            host_to_device_fis.command = 161; //identification code for atapi
+            host_to_device_fis.command = ATAPI_IDENTIFY; //identification code for atapi
         }
 
         // copy the info from the struct into the memory region
@@ -733,7 +767,7 @@ impl AhciController {
                 return None;
             }
 
-            // hier soll dann der DMA Buffer impl werden
+            // hier wird ein DMA Buffer erzeugt
             let mut dma_reg = AhciController::allocate_heap_region(byte_count);
             let dma_reg_addr = dma_reg.start.start_address().as_u64();
 
@@ -843,8 +877,8 @@ impl AhciController {
     pub unsafe fn byte_swap(&self, input: *mut u8, len: isize) {
         for i in (0..len).step_by(2) {
             let swap = *input.offset(i);
-            *input.offset(i) = *input.offset(i +1);
-            *input.offset(i+1) = swap;
+            *input.offset(i) = *input.offset(i + 1);
+            *input.offset(i + 1) = swap;
         }
     }
 
@@ -965,6 +999,149 @@ impl AhciController {
             info!("ERR: issueCommand hatte einen Fehler");
             return false;
         }
+
+        return true;
+    }
+
+    /*uint16_t AhciController::performAtaIO(uint32_t portNumber, const DeviceInfo &deviceInfo, AhciController::TransferMode mode, uint8_t *buffer, uint64_t startSector, uint32_t sectorCount) {
+        if (startSector + sectorCount > deviceInfo.lbaCapacity) {
+            Util::Panic::fire(Util::Panic::OUT_OF_BOUNDS, "AHCI: Trying to read/write out of disk bounds!");
+        }
+
+        uint8_t commandFis[64]{};
+        uint8_t atapiCommand[16]{};
+
+        auto &hostToDeviceFis = *reinterpret_cast<FisRegisterHostToDevice*>(commandFis);
+        hostToDeviceFis.type = REGISTER_HOST_TO_DEVICE;
+        hostToDeviceFis.commandControl = 1;
+        hostToDeviceFis.command = mode == READ ? READ_DMA_EX : WRITE_DMA_EX;        (todo)
+
+        hostToDeviceFis.device = 1 << 6; // LBA mode
+
+        hostToDeviceFis.featureLow = 1; // DMA mode
+
+        //start Sector wird auf die lba aufgeteilt
+        hostToDeviceFis.lba0 = startSector & 0xff;
+        hostToDeviceFis.lba1 = (startSector >> 8) & 0xff;
+        hostToDeviceFis.lba2 = (startSector >> 16) & 0xff;
+        hostToDeviceFis.lba3 = (startSector >> 24) & 0xff;
+
+        hostToDeviceFis.countLow = sectorCount & 0xff;
+        hostToDeviceFis.countHigh = (sectorCount >> 8) & 0xff;
+
+        if (mode == READ) {
+            auto *dmaBuffer = readFromDevice(portNumber, sectorCount * deviceInfo.bytesPerSector, commandFis, atapiCommand);
+            if (dmaBuffer == nullptr) {
+                return 0;
+            }
+
+            auto sourceAddress = Util::Address(dmaBuffer);
+            auto targetAddress = Util::Address(buffer);
+            targetAddress.copyRange(sourceAddress, deviceInfo.bytesPerSector * sectorCount);
+
+            delete reinterpret_cast<uint8_t*>(dmaBuffer);
+            return sectorCount;
+        } else {
+            auto dmaSize = deviceInfo.bytesPerSector * sectorCount;
+            auto *dmaBuffer = allocateDmaBuffer(dmaSize);
+            auto *physicalDmaAddress = Kernel::Service::getService<Kernel::MemoryService>().getPhysicalAddress(dmaBuffer);
+
+            auto sourceAddress = Util::Address(buffer);
+            auto targetAddress = Util::Address(dmaBuffer);
+            targetAddress.copyRange(sourceAddress, sectorCount * deviceInfo.bytesPerSector);
+
+            auto success = writeToDevice(portNumber, physicalDmaAddress, dmaSize, commandFis, atapiCommand);
+
+            delete reinterpret_cast<uint8_t*>(dmaBuffer);
+            return success ? sectorCount : 0;
+        }
+    }*/
+
+    pub unsafe fn performAtaIO(
+        &self,
+        portnr: u32,
+        deviceInfo: DeviceInfo,
+        mode: TransferMode,
+        mut buffer: PhysFrameRange,
+        start_sector: u64,
+        sector_count: u32,
+    ) -> bool {
+        if start_sector + (sector_count as u64) > deviceInfo.lbaCapacity.try_into().unwrap() {
+            info!("ERR: AHCI trys to read/write out of bounds!");
+            return false;
+        }
+
+        let mut command_fis = [0u8; 64];
+        let mut atapi_cmd = [0u8; 16];
+
+        //baue das command fis
+        let mut host_to_device_fis = FisRegisterHostToDevice {
+            typ: 39,                     //Typ = Host To Device
+            port_mult_and_cmd_ctrl: 128, //nur command control ist auf 1
+            command: 0,
+            featureLow: 1, // HBA mode
+            lba0: (start_sector & 0xff) as u8,
+            lba1: (start_sector >> 8 & 0xff) as u8,
+            lba2: (start_sector >> 16 & 0xff) as u8,
+            device: 1 << 6, // LBA mode
+            lba3: (start_sector >> 24 & 0xff) as u8,
+            lba4: 0,
+            lba5: 0,
+            featureHigh: 0,
+            countLow: (sector_count & 0xff) as u8,
+            countHigh: (sector_count >> 8 & 0xff) as u8,
+            isochronousCommandCompletion: 0,
+            control: 0,
+            reserved2: 0,
+        };
+        if mode == TransferMode::READ {
+            host_to_device_fis.command = READ_DMA_EX;
+
+            //copy the struct to the array
+            unsafe {
+                let ptr = command_fis.as_mut_ptr();
+                let src = &host_to_device_fis as *const FisRegisterHostToDevice as *const u8;
+                ptr::copy_nonoverlapping(src, ptr, size_of::<FisRegisterHostToDevice>());
+            }
+
+            //schicke die Daten an read_from_device
+
+            //hier bekomme ich einen Buffer zurück
+
+
+            buffer = self
+            .read_from_device(portnr, sector_count*(deviceInfo.bytesPerSector as u32), command_fis, atapi_cmd)
+            .unwrap();
+            
+            //warum wurde das im hhuOS kopiert, wenn man nicht einfach so den Buffer einfügen kann?
+            
+
+
+
+        } else {
+            host_to_device_fis.command = WRITE_DMA_EX;
+            //copy the struct to the array
+            unsafe {
+                let ptr = command_fis.as_mut_ptr();
+                let src = &host_to_device_fis as *const FisRegisterHostToDevice as *const u8;
+                ptr::copy_nonoverlapping(src, ptr, size_of::<FisRegisterHostToDevice>());
+            }
+
+            //schicke die Daten an wrtie_to_device
+
+            let buffer_size = sector_count * (deviceInfo.bytesPerSector as u32);
+
+            // der DMA Buffer existiert schon und muss demnach nicht verändert werden
+            let buffer_addr = buffer.start.start_address().as_u64();
+
+            //hier wird in den Buffer geschrieben
+            
+            let success = self.write_to_device(portnr, buffer_addr, buffer_size, command_fis, atapi_cmd);
+            // todo hier könnten noch allocs gelöscht werden, kommt erst im cleanup
+            return success;
+        }
+
+        //unterscheide zwischen read und write
 
         return true;
     }
