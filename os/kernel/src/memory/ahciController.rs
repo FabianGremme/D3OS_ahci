@@ -386,20 +386,20 @@ pub fn init() {
             "model ist {}, firmware ist {}, seriennummer ist {}",
             model_str, firmware_str, serial_str
         );
-        
+
         info!("teste ob ataIO funktioniert!");
         let sector_size = id_device.bytesPerSector;
-        const read_bytes:u32 = 512 * 5;
+        //hier wird die größe des Buffers festgelegt
+        const read_bytes: u32 = 512 * 12;
         let single_region = AhciController::allocate_heap_region(read_bytes);
         info!("die region ist {:?}", single_region);
-        ahci_controller.performAtaIO(0, id_device, TransferMode::READ, single_region, 0, 1);
+        ahci_controller.performAtaIO(0, id_device, TransferMode::READ, single_region, 0, 12);
         info!("read from single region done");
         // jetzt muss noch die PhysFrameRange umgewandelt werden, damit man daraus lesen kann
 
         let mut region_ptr = single_region.start.start_address().as_u64();
         let mut readable_array = region_ptr as *mut [u8; read_bytes as usize];
         info!("das gelesene array ist: {:?}", *readable_array);
-
     }
 
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
@@ -840,10 +840,15 @@ impl AhciController {
     ) -> &'static mut HbaCommandTable {
         //berechne, wie viele descriptoren benötigt werden
         let mut descriptor_count;
-        if byte_count / 4096 == 0 {
-            descriptor_count = (byte_count / 4096) + 1;
+        info!("byte count ist: {:?}", byte_count);
+        info!("berechne descriptor_count: {:?}", byte_count / 4096);
+        let full_amt = byte_count / 4096;
+        let rest = byte_count % 4096;
+        info!("full amt is {} and rest ist {}", full_amt, rest);
+        if rest != 0 {
+            descriptor_count = full_amt + 1;
         } else {
-            descriptor_count = byte_count / 4096;
+            descriptor_count = full_amt;
         }
 
         // füllt nur mit 0 auf, weil das später anders reinkopiert wird
@@ -866,9 +871,21 @@ impl AhciController {
             (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
             info!("done");
         } else {
-            // hier muss noch ordentlich berechnet werden, wie viele Seiten man jetzt braucht. ich teste erst mal mit einer Seite
-            //hhuos läuft auch erst mal mit einer Seite
             info!("descriptor count ist {:?}", descriptor_count);
+            for i in 0..descriptor_count {
+                let mut descriptor =
+                    output.offset((i + 1) as isize) as *mut HbaPhysicalRegionDescriptorTableEntry;
+
+                (*descriptor).dataBaseAddress = (physical_dma_buffer + (i *4096)as u64) as u32;
+                (*descriptor).dataBaseAddressUpper = ((physical_dma_buffer + (i * 4096)as u64) >> 32) as u32;
+
+                let remaining_bytes = byte_count - i * 4096;
+                if remaining_bytes < 4096 {
+                    (*descriptor).databytecount_and_interruptOnCompletion = remaining_bytes;
+                } else {
+                    (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
+                }
+            }
         }
 
         output.as_mut().unwrap()
@@ -1108,16 +1125,16 @@ impl AhciController {
 
             //hier bekomme ich einen Buffer zurück
 
-
             buffer = self
-            .read_from_device(portnr, sector_count*(deviceInfo.bytesPerSector as u32), command_fis, atapi_cmd)
-            .unwrap();
-            
+                .read_from_device(
+                    portnr,
+                    sector_count * (deviceInfo.bytesPerSector as u32),
+                    command_fis,
+                    atapi_cmd,
+                )
+                .unwrap();
+
             //warum wurde das im hhuOS kopiert, wenn man nicht einfach so den Buffer einfügen kann?
-            
-
-
-
         } else {
             host_to_device_fis.command = WRITE_DMA_EX;
             //copy the struct to the array
@@ -1135,8 +1152,9 @@ impl AhciController {
             let buffer_addr = buffer.start.start_address().as_u64();
 
             //hier wird in den Buffer geschrieben
-            
-            let success = self.write_to_device(portnr, buffer_addr, buffer_size, command_fis, atapi_cmd);
+
+            let success =
+                self.write_to_device(portnr, buffer_addr, buffer_size, command_fis, atapi_cmd);
             // todo hier könnten noch allocs gelöscht werden, kommt erst im cleanup
             return success;
         }
