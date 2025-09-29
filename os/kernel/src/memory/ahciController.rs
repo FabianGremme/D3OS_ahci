@@ -391,7 +391,7 @@ pub fn init() {
         let sector_size = id_device.bytesPerSector;
         //hier wird die größe des Buffers festgelegt
 
-        const arr_len:u32 = 5;
+        const arr_len: u32 = 5;
         const read_bytes: u32 = 512 * arr_len;
         let single_region = AhciController::allocate_heap_region(read_bytes);
         info!("die region ist {:?}", single_region);
@@ -403,27 +403,41 @@ pub fn init() {
         info!("das gelesene array ist: {:?}", *readable_array);
         info!("\n\n\n\n\n");
 
-
         info!("teste nun das schreiben:");
 
         let single_write_region = AhciController::allocate_heap_region(read_bytes);
-        let mut write_region_ptr = single_write_region.start.start_address().as_u64() as *mut [u8; read_bytes as usize];
-        *write_region_ptr = [8;(512*arr_len) as usize];
+        let mut write_region_ptr =
+            single_write_region.start.start_address().as_u64() as *mut [u8; read_bytes as usize];
+        *write_region_ptr = [8; (512 * arr_len) as usize];
         let mut writable_array = write_region_ptr as *mut [u8; read_bytes as usize];
-        info!("das zu schreibende array ist (kontrollwert): {:?}", *writable_array);
+        info!(
+            "das zu schreibende array ist (kontrollwert): {:?}",
+            *writable_array
+        );
         //schreibe das array an die Stelle in den Speicher:
-        ahci_controller.performAtaIO(0, &id_device, TransferMode::WRITE, single_write_region, 0, arr_len);
-        
+        ahci_controller.performAtaIO(
+            0,
+            &id_device,
+            TransferMode::WRITE,
+            single_write_region,
+            0,
+            arr_len,
+        );
 
         info!("teste, ob nun wirklich geschrieben wurde:");
         info!("\n\n\n\n\n");
         let ctrl_single_region = AhciController::allocate_heap_region(read_bytes);
-        info!("die region ist {:?}", single_region);
-        ahci_controller.performAtaIO(0, &id_device, TransferMode::READ, ctrl_single_region, 0, 5);
+        ahci_controller.performAtaIO(
+            0,
+            &id_device,
+            TransferMode::READ,
+            ctrl_single_region,
+            0,
+            arr_len,
+        );
         let mut ctrl_region_ptr = ctrl_single_region.start.start_address().as_u64();
         let mut ctrl_readable_array = ctrl_region_ptr as *mut [u8; read_bytes as usize];
         info!("das gelesene kontrollarray ist: {:?}", *ctrl_readable_array);
-
     }
 
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
@@ -800,9 +814,14 @@ impl AhciController {
             cmd_table.commandFis = command_fis.clone();
             cmd_table.atapiCommand = atapi_command.clone();
 
-            let mut physical_region_descriptor_table_length = byte_count / 4096;
-            if physical_region_descriptor_table_length == 0 {
-                physical_region_descriptor_table_length = (byte_count / 4096) + 1;
+            info!("byte count in write to device ist {}", byte_count);
+            let mut physical_region_descriptor_table_length;
+            let full_amt = byte_count / 4096;
+            let rest = byte_count % 4096;
+            if rest != 0 {
+                physical_region_descriptor_table_length = full_amt + 1;
+            } else {
+                physical_region_descriptor_table_length = full_amt;
             }
 
             //nachschauen, wie ich auf diese Größen komme
@@ -879,7 +898,7 @@ impl AhciController {
         // alloc frame nötig
         // dann addr weitergeben
         //später ggf mehrere frames nötig
-        let mut allocated = frames::alloc(1);               //hier gibt es Probleme???
+        let mut allocated = frames::alloc(1); //hier gibt es Probleme???
         let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
 
         //schreibe 0 in die ganzen Felder
@@ -900,8 +919,9 @@ impl AhciController {
                 let mut descriptor =
                     output.offset((i + 1) as isize) as *mut HbaPhysicalRegionDescriptorTableEntry;
 
-                (*descriptor).dataBaseAddress = (physical_dma_buffer + (i *4096)as u64) as u32;
-                (*descriptor).dataBaseAddressUpper = ((physical_dma_buffer + (i * 4096)as u64) >> 32) as u32;
+                (*descriptor).dataBaseAddress = (physical_dma_buffer + (i * 4096) as u64) as u32;
+                (*descriptor).dataBaseAddressUpper =
+                    ((physical_dma_buffer + (i * 4096) as u64) >> 32) as u32;
 
                 let remaining_bytes = byte_count - i * 4096;
                 if remaining_bytes < 4096 {
@@ -1004,10 +1024,16 @@ impl AhciController {
         cmd_table.atapiCommand = atapi_command.clone();
         info!("die cmd_table sieht so aus: {:?}", cmd_table);
 
+        //hier kann es sein, dass dei groesse 1 nicht mehr passt
         // hier wird alles in den cmd header geschrieben
-        let mut physical_region_descriptor_table_length = byte_count / 4096;
-        if physical_region_descriptor_table_length == 0 {
-            physical_region_descriptor_table_length = (byte_count / 4096) + 1;
+        info!("byte count in write to device ist {}", byte_count);
+        let mut physical_region_descriptor_table_length;
+        let full_amt = byte_count / 4096;
+        let rest = byte_count % 4096;
+        if rest != 0 {
+            physical_region_descriptor_table_length = full_amt + 1;
+        } else {
+            physical_region_descriptor_table_length = full_amt;
         }
 
         //nachschauen, wie ich auf diese Größen komme
