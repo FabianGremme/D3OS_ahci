@@ -391,7 +391,7 @@ pub fn init() {
         let sector_size = id_device.bytesPerSector;
         //hier wird die größe des Buffers festgelegt
 
-        const arr_len: u32 = 5;
+        const arr_len: u32 = 1;
         const read_bytes: u32 = 512 * arr_len;
         let single_region = AhciController::allocate_heap_region(read_bytes);
         info!("die region ist {:?}", single_region);
@@ -727,7 +727,25 @@ impl AhciController {
         None
     }
 
-    // fis steht für frame information structure
+            //heap Speicher alloziieren
+    pub unsafe fn allocate_heap_region(size: u32) -> PhysFrameRange {
+        let mut frame_count;
+        let full_amt = size / 4096;
+        let rest = size % 4096;
+        info!("full amt is {} and rest ist {}", full_amt, rest);
+        if rest != 0 {
+            frame_count = full_amt + 1;
+        } else {
+            frame_count = full_amt;
+        }
+
+        let mut allocated = frames::alloc(frame_count as usize);
+        let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
+
+        //schreibe 0 in die ganzen Felder
+        pointer.write_bytes(0, allocated.len().try_into().unwrap());
+        allocated
+    }
 
     pub unsafe fn identify_device(&self, portnr: u32) -> DeviceInfo {
         let mut command_fis = [0u8; 64];
@@ -857,24 +875,7 @@ impl AhciController {
         }
     }
 
-    //heap Speicher alloziieren
-    pub unsafe fn allocate_heap_region(size: u32) -> PhysFrameRange {
-        let mut frame_count = size / 4096;
-        if frame_count == 0 {
-            frame_count += 1;
-        }
 
-        let mut allocated = frames::alloc(frame_count as usize);
-        let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
-
-        //schreibe 0 in die ganzen Felder
-        pointer.write_bytes(0, allocated.len().try_into().unwrap());
-        allocated
-    }
-
-    pub unsafe fn allocate_dma_buffer(size: u32) -> PhysFrameRange {
-        Self::allocate_heap_region(size)
-    }
 
     pub unsafe fn create_hba_cmd_table(
         &self,
@@ -1024,7 +1025,6 @@ impl AhciController {
         cmd_table.atapiCommand = atapi_command.clone();
         info!("die cmd_table sieht so aus: {:?}", cmd_table);
 
-        //hier kann es sein, dass dei groesse 1 nicht mehr passt
         // hier wird alles in den cmd header geschrieben
         info!("byte count in write to device ist {}", byte_count);
         let mut physical_region_descriptor_table_length;
@@ -1056,7 +1056,7 @@ impl AhciController {
             | (atapi << 5) as u32
             | cmd_fis_len as u32;
         (*first_cmd_header).dword0 = dword0;
-        info!("dword0 ist {:b}", dword0);
+        info!("dword0 write ist {:b}", dword0);
 
         (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
         (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
@@ -1270,3 +1270,12 @@ impl HbaPort {
 
 //prdt richtig machen (also das zusammengesetzte struct löschen und mit pointern machen) (fertig)
 //schauen, wo der Speicher aus der Bacheloararbeit gemappt wird (das wurde im code erst mal kaum richtig verwendet)
+
+
+
+
+
+//Tests die fehlschlagen:
+//zu große Regionen gibt irgendwann einen multiplikations overflow
+//schreiben und lesen danach gibt nicht das geschriebene array zurück
+
