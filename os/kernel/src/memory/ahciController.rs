@@ -2,7 +2,7 @@ use crate::device::ide::IdeDrive;
 use crate::memory::frames::alloc;
 use crate::memory::nvmem::NfitStructureHeader;
 use crate::memory::vma::VmaType;
-use crate::memory::{MemorySpace, PAGE_SIZE, frames, pages};
+use crate::memory::{MemorySpace, PAGE_SIZE, ahciController, frames, pages};
 use crate::process::scheduler::Scheduler;
 use crate::storage::add_block_device;
 use crate::syscall::sys_time::{sys_get_system_time, wait_ms};
@@ -83,7 +83,8 @@ struct AhciController {
 #[allow(warnings)]
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
-struct HBARegister {//passt das so???
+struct HBARegister {
+    //passt das so???
     hostCapabilities: u32,
     globalHostControl: u32,
     interruptStatus: u32,
@@ -372,88 +373,17 @@ pub fn init() {
         info!("check nr of available command slots");
         ahci_controller.check_nr_of_command_slots();
 
-        //info!("teste die Funktion um mehrere Bitfelder auszulesen");
-        //let testoutput = ahci_controller.general_bitlen_reader(57105, 7, 5); // hier sollte 30 rauskommen, das passt
-        //info!("testoutput ist {}", testoutput);
+        //ahci_controller.find_slot_all_ports();
 
-        ahci_controller.find_slot_all_ports();
-        info!("\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\n\nidentify the current device");
-        let id_device = ahci_controller.identify_device(0);
-        info!("id device is {:?}", id_device);
-
-        let mut model = id_device.model.clone();
-        ahci_controller.byte_swap(model.as_mut_ptr(), model.len().try_into().unwrap());
-        let model_str = String::from_utf8(Vec::from(model)).unwrap();
-        let mut serial_nr = id_device.serialNumber.clone();
-        ahci_controller.byte_swap(serial_nr.as_mut_ptr(), serial_nr.len().try_into().unwrap());
-        let serial_str = String::from_utf8(Vec::from(serial_nr)).unwrap();
-        let mut firmware_rev = id_device.firmwareRevision.clone();
-        ahci_controller.byte_swap(
-            firmware_rev.as_mut_ptr(),
-            firmware_rev.len().try_into().unwrap(),
-        );
-        let firmware_str = String::from_utf8(Vec::from(firmware_rev)).unwrap();
-
-        info!(
-            "model ist {}, firmware ist {}, seriennummer ist {}",
-            model_str, firmware_str, serial_str
-        );
-
-        info!("teste ob ataIO funktioniert!");
-        let sector_size = id_device.bytesPerSector;
-        //hier wird die größe des Buffers festgelegt
-
-        const arr_len: u32 = 1;
-        const read_bytes: u32 = 512 * arr_len;
-        let single_region = AhciController::allocate_heap_region(read_bytes);
-        info!("die region ist {:?}", single_region);
-        ahci_controller.performAtaIO(0, &id_device, TransferMode::READ, single_region, 0, arr_len);
-        info!("read from single region done");
-
-        let mut region_ptr = single_region.start.start_address().as_u64();
-        let mut readable_array = region_ptr as *mut [u8; read_bytes as usize];
-        info!("das gelesene array ist: {:?}", *readable_array);
-        info!("\n\n\n\n\n");
-
-        info!("teste nun das schreiben:");
-
-        let single_write_region = AhciController::allocate_heap_region(read_bytes);
-        let mut write_region_ptr =
-            single_write_region.start.start_address().as_u64() as *mut [u8; read_bytes as usize];
-        *write_region_ptr = [9; (512 * arr_len) as usize];
-        let mut writable_array = write_region_ptr as *mut [u8; read_bytes as usize];
-        info!(
-            "das zu schreibende array ist (kontrollwert): {:?}",
-            *writable_array
-        );
-        //schreibe das array an die Stelle in den Speicher:
-        ahci_controller.performAtaIO(
-            0,
-            &id_device,
-            TransferMode::WRITE,
-            single_write_region,
-            0,
-            arr_len,
-        );
-
-        info!("teste, ob nun wirklich geschrieben wurde:");
-        info!("\n\n\n\n\n");
-        let ctrl_single_region = AhciController::allocate_heap_region(read_bytes);
-        ahci_controller.performAtaIO(
-            0,
-            &id_device,
-            TransferMode::READ,
-            ctrl_single_region,
-            0,
-            arr_len,
-        );
-        let mut ctrl_region_ptr = ctrl_single_region.start.start_address().as_u64();
-        let mut ctrl_readable_array = ctrl_region_ptr as *mut [u8; read_bytes as usize];
-        info!("das gelesene kontrollarray ist: {:?}", *ctrl_readable_array);
+        // hier wird in den Speicher geschrieben/ gelesen
+        //ahci_controller.teste_lesen_schreiben();
+        ahci_controller.test_identify_device_on_port(0);
+        ahci_controller.teste_lesen(0);
+        ahci_controller.teste_schreiben(0);
     }
-
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
 }
+
 #[allow(warnings)]
 impl AhciController {
     fn get_cmd_table_header(start: *mut u8) -> *mut HbaCommandTableHeader {
@@ -511,12 +441,6 @@ impl AhciController {
         let start_page = pages::page_from_u64(address).expect("address is not page aligned");
         let start_page_frame =
             frames::frame_from_u64(address).expect("address is not page aligned");
-
-        /*let test = PhysFrameRange {
-            start: start_page_frame,
-            end: start_page_frame + ((length + PAGE_SIZE as u64 - 1) / PAGE_SIZE as u64),
-        };
-        info!("testframe is {:?}", test);*/
 
         // Allocate virtual memory area for the non-volatile memory
         let vma = process
@@ -592,12 +516,12 @@ impl AhciController {
 
         if ipm != 0x01 {
             //0x01 means that the interface of the device is active. only then the device can be accessed
-            //info!("ERR: interface is not active");
+            info!("ERR: interface is not active");
             return false;
         }
         if det != 0x03 {
             //0x03 means that the device is detected and a physical communication is established
-            //info!("ERR: device is not detected, or physical communication not established");
+            info!("ERR: device is not detected, or physical communication not established");
             return false;
         }
         true
@@ -657,10 +581,10 @@ impl AhciController {
     pub unsafe fn check_cap_nr_of_ports(&self) -> u32 {
         let cap = (*self.hba_regs).hostCapabilities;
         let nr_of_ports = Self::general_bitlen_reader(cap, 0, 5);
-        /*info!(
+        info!(
             "laut capabilities werden {} Ports unterstützt.",
             nr_of_ports
-        );*/
+        );
         nr_of_ports
     }
 
@@ -675,25 +599,22 @@ impl AhciController {
     }
 
     pub unsafe fn start_cmd_engine(&self, mut port: *mut HbaPort) {
-        info!("port ist nun {:?}", port);
         while ((*port).command & COMMAND_LIST_RUNNING) > 0 {
             wait_ms(10);
         }
         (*port).command |= (START | FIS_RECIVE_ENABLE);
-        info!("port ist nun {:?}", port);
     }
 
     pub unsafe fn stop_cmd_engine(&self, mut port: *mut HbaPort) {
-        info!("port ist nun {:?}", port);
         (*port).command &= (START | FIS_RECIVE_ENABLE);
         while ((*port).command & (FIS_RECEIVE_RUNNING | COMMAND_LIST_RUNNING)) > 0 {
             wait_ms(10);
         }
-        info!("port ist nun {:?}", port);
     }
 
     pub unsafe fn rebase_port(&self, port_nr: u32) {
         let port = self.ports_start.offset(port_nr.try_into().unwrap());
+        info!("port nr {} hat die addr {:?}", port_nr, port);
         if Self::check_port_usable(port) {
             info!("portnr {} bekommt den rebase", port_nr);
             self.stop_cmd_engine(port);
@@ -727,7 +648,8 @@ impl AhciController {
         -1
     }
 
-    pub unsafe fn find_slot_all_ports(&self) -> Option<*mut HbaPort> {
+    //brauche ich das überhaupt noch???
+    /*pub unsafe fn find_slot_all_ports(&self) -> Option<*mut HbaPort> {
         let amt_port = (*self.hba_regs).portsImplemented;
         for i in 0..amt_port - 1 {
             let current_port = self.ports_start.offset(i.try_into().unwrap());
@@ -738,9 +660,9 @@ impl AhciController {
             }
         }
         None
-    }
+    }*/
 
-            //heap Speicher alloziieren
+    //heap Speicher alloziieren
     pub unsafe fn allocate_heap_region(size: u32) -> PhysFrameRange {
         let mut frame_count;
         let full_amt = size / 4096;
@@ -887,8 +809,6 @@ impl AhciController {
             Some(dma_reg)
         }
     }
-
-
 
     pub unsafe fn create_hba_cmd_table(
         &self,
@@ -1094,7 +1014,7 @@ impl AhciController {
         auto &hostToDeviceFis = *reinterpret_cast<FisRegisterHostToDevice*>(commandFis);
         hostToDeviceFis.type = REGISTER_HOST_TO_DEVICE;
         hostToDeviceFis.commandControl = 1;
-        hostToDeviceFis.command = mode == READ ? READ_DMA_EX : WRITE_DMA_EX;       
+        hostToDeviceFis.command = mode == READ ? READ_DMA_EX : WRITE_DMA_EX;
 
         hostToDeviceFis.device = 1 << 6; // LBA mode
 
@@ -1188,7 +1108,7 @@ impl AhciController {
 
             //hier bekomme ich einen Buffer zurück
 
-           let result = self
+            let result = self
                 .read_from_device(
                     portnr,
                     sector_count * (deviceInfo.bytesPerSector as u32),
@@ -1199,9 +1119,12 @@ impl AhciController {
             unsafe {
                 let resptr = result.start.start_address().as_u64() as *mut u8;
                 let bufptr = buffer.start.start_address().as_u64() as *mut u8;
-                ptr::copy_nonoverlapping(resptr, bufptr,(sector_count * (deviceInfo.bytesPerSector as  u32)) as usize);
+                ptr::copy_nonoverlapping(
+                    resptr,
+                    bufptr,
+                    (sector_count * (deviceInfo.bytesPerSector as u32)) as usize,
+                );
             }
-            
         } else {
             host_to_device_fis.command = WRITE_DMA_EX;
             //copy the struct to the array
@@ -1226,8 +1149,85 @@ impl AhciController {
             return success;
         }
 
-
         return true;
+    }
+
+    unsafe fn test_identify_device_on_port(&self, portnr: u32) {
+        info!("identify device on port {}", portnr);
+        let id_device = self.identify_device(portnr);
+        info!("id device is {:?}", id_device);
+
+        let mut model = id_device.model.clone();
+        self.byte_swap(model.as_mut_ptr(), model.len().try_into().unwrap());
+        let model_str = String::from_utf8(Vec::from(model)).unwrap();
+        let mut serial_nr = id_device.serialNumber.clone();
+        self.byte_swap(serial_nr.as_mut_ptr(), serial_nr.len().try_into().unwrap());
+        let serial_str = String::from_utf8(Vec::from(serial_nr)).unwrap();
+        let mut firmware_rev = id_device.firmwareRevision.clone();
+        self.byte_swap(
+            firmware_rev.as_mut_ptr(),
+            firmware_rev.len().try_into().unwrap(),
+        );
+        let firmware_str = String::from_utf8(Vec::from(firmware_rev)).unwrap();
+
+        info!(
+            "model ist {}, firmware ist {}, seriennummer ist {}",
+            model_str, firmware_str, serial_str
+        );
+    }
+
+    unsafe fn teste_lesen(&self, portnr: u32) {
+        let id_device = self.identify_device(portnr);
+        let sector_size = id_device.bytesPerSector;
+        
+
+        const arr_len: u32 = 1;
+        const read_bytes: u32 = 512 * arr_len;
+        let single_region = AhciController::allocate_heap_region(read_bytes);
+        self.performAtaIO(portnr, &id_device, TransferMode::READ, single_region, 0, arr_len);
+
+        let mut region_ptr = single_region.start.start_address().as_u64();
+        let mut readable_array = region_ptr as *mut [u8; read_bytes as usize];
+        info!("das gelesene array ist: {:?}", *readable_array);
+        
+    }
+
+    unsafe fn teste_schreiben(&self, portnr: u32){
+        const arr_len: u32 = 1;
+        const read_bytes: u32 = 512 * arr_len;
+        let id_device = self.identify_device(portnr);
+
+        let single_write_region = AhciController::allocate_heap_region(read_bytes);
+        let mut write_region_ptr =
+            single_write_region.start.start_address().as_u64() as *mut [u8; read_bytes as usize];
+        *write_region_ptr = [9; (512 * arr_len) as usize];
+        let mut writable_array = write_region_ptr as *mut [u8; read_bytes as usize];
+        info!(
+            "das zu schreibende array ist (kontrollwert): {:?}",
+            *writable_array
+        );
+        //schreibe das array an die Stelle in den Speicher:
+        self.performAtaIO(
+            portnr,
+            &id_device,
+            TransferMode::WRITE,
+            single_write_region,
+            0,
+            arr_len,
+        );
+        info!("Kontrollwert wird geschrieben");
+        let ctrl_single_region = AhciController::allocate_heap_region(read_bytes);
+        self.performAtaIO(
+            portnr,
+            &id_device,
+            TransferMode::READ,
+            ctrl_single_region,
+            0,
+            arr_len,
+        );
+        let mut ctrl_region_ptr = ctrl_single_region.start.start_address().as_u64();
+        let mut ctrl_readable_array = ctrl_region_ptr as *mut [u8; read_bytes as usize];
+        info!("das gelesene kontrollarray ist: {:?}", *ctrl_readable_array);
     }
 }
 
@@ -1287,11 +1287,6 @@ impl HbaPort {
 //prdt richtig machen (also das zusammengesetzte struct löschen und mit pointern machen) (fertig)
 //schauen, wo der Speicher aus der Bacheloararbeit gemappt wird (das wurde im code erst mal kaum richtig verwendet)
 
-
-
-
-
 //Tests die fehlschlagen:
 //zu große Regionen gibt irgendwann einen multiplikations overflow
 //schreiben und lesen danach gibt nicht das geschriebene array zurück
-
