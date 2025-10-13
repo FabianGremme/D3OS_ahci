@@ -381,8 +381,8 @@ pub fn init() {
         // hier wird in den Speicher geschrieben/ gelesen
         //ahci_controller.teste_lesen_schreiben();
         ahci_controller.test_identify_device_on_port(0);
-        ahci_controller.teste_lesen(0);
-        ahci_controller.teste_schreiben(0);
+        ahci_controller.teste_lesen(0, 1);
+        ahci_controller.teste_schreiben(0, 1);
     }
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
 }
@@ -876,49 +876,7 @@ impl AhciController {
         }
     }
 
-    //write to device:
-    /*
-        bool AhciController::writeToDevice(uint32_t portNumber, void *physicalDmaAddress, uint32_t byteCount, const uint8_t *commandFis, const uint8_t *atapiCommand) {
-        auto &memoryService = Kernel::Service::getService<Kernel::MemoryService>();
-        auto &port = registers->ports[portNumber];                  //hole den Port
-        auto *commandList = virtualCommandLists[portNumber];        //eine eigene Liste für Listen, oder getrennt??
 
-        portLocks[portNumber].acquire();
-
-        if (!port.isActive()) {
-            portLocks[portNumber].release();
-            return false;
-        }
-
-        auto slot = findCommandSlot(portNumber);
-        if (slot == UINT32_MAX) {
-            portLocks[portNumber].release();
-            return false;
-        }
-
-        auto *commandTable = HbaCommandTable::createCommandTable(byteCount, physicalDmaAddress);
-        Util::Address(commandTable->commandFis).copyRange(Util::Address(commandFis), sizeof(HbaCommandTable::commandFis));
-        Util::Address(commandTable->atapiCommand).copyRange(Util::Address(atapiCommand), sizeof(HbaCommandTable::atapiCommand));
-
-        auto &commandHeader = commandList[slot];
-        commandHeader.clear();
-        commandHeader.physicalRegionDescriptorTableLength = byteCount % BYTES_PER_DESCRIPTOR_ENTRY == 0 ? (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) : (byteCount / BYTES_PER_DESCRIPTOR_ENTRY) + 1;
-        commandHeader.commandFisLength = sizeof(FisRegisterHostToDevice) / sizeof(uint32_t);
-        commandHeader.commandTableDescriptorBaseAddress = reinterpret_cast<uint32_t>(memoryService.getPhysicalAddress(commandTable));
-        commandHeader.atapi = atapiCommand[0] == 0 ? 0 : 1;
-
-        // Issue command
-        if (!port.issueCommand(slot)) {
-            portLocks[portNumber].release();
-            delete commandTable;
-            return false;
-        }
-
-        portLocks[portNumber].release();
-        delete commandTable;
-        return true;
-    }
-    */
 
     pub unsafe fn write_to_device(
         &self,
@@ -1002,59 +960,7 @@ impl AhciController {
         return true;
     }
 
-    /*uint16_t AhciController::performAtaIO(uint32_t portNumber, const DeviceInfo &deviceInfo, AhciController::TransferMode mode, uint8_t *buffer, uint64_t startSector, uint32_t sectorCount) {
-        if (startSector + sectorCount > deviceInfo.lbaCapacity) {
-            Util::Panic::fire(Util::Panic::OUT_OF_BOUNDS, "AHCI: Trying to read/write out of disk bounds!");
-        }
 
-        uint8_t commandFis[64]{};
-        uint8_t atapiCommand[16]{};
-
-        auto &hostToDeviceFis = *reinterpret_cast<FisRegisterHostToDevice*>(commandFis);
-        hostToDeviceFis.type = REGISTER_HOST_TO_DEVICE;
-        hostToDeviceFis.commandControl = 1;
-        hostToDeviceFis.command = mode == READ ? READ_DMA_EX : WRITE_DMA_EX;
-
-        hostToDeviceFis.device = 1 << 6; // LBA mode
-
-        hostToDeviceFis.featureLow = 1; // DMA mode
-
-        //start Sector wird auf die lba aufgeteilt
-        hostToDeviceFis.lba0 = startSector & 0xff;
-        hostToDeviceFis.lba1 = (startSector >> 8) & 0xff;
-        hostToDeviceFis.lba2 = (startSector >> 16) & 0xff;
-        hostToDeviceFis.lba3 = (startSector >> 24) & 0xff;
-
-        hostToDeviceFis.countLow = sectorCount & 0xff;
-        hostToDeviceFis.countHigh = (sectorCount >> 8) & 0xff;
-
-        if (mode == READ) {
-            auto *dmaBuffer = readFromDevice(portNumber, sectorCount * deviceInfo.bytesPerSector, commandFis, atapiCommand);
-            if (dmaBuffer == nullptr) {
-                return 0;
-            }
-
-            auto sourceAddress = Util::Address(dmaBuffer);
-            auto targetAddress = Util::Address(buffer);
-            targetAddress.copyRange(sourceAddress, deviceInfo.bytesPerSector * sectorCount);
-
-            delete reinterpret_cast<uint8_t*>(dmaBuffer);
-            return sectorCount;
-        } else {
-            auto dmaSize = deviceInfo.bytesPerSector * sectorCount;
-            auto *dmaBuffer = allocateDmaBuffer(dmaSize);
-            auto *physicalDmaAddress = Kernel::Service::getService<Kernel::MemoryService>().getPhysicalAddress(dmaBuffer);
-
-            auto sourceAddress = Util::Address(buffer);
-            auto targetAddress = Util::Address(dmaBuffer);
-            targetAddress.copyRange(sourceAddress, sectorCount * deviceInfo.bytesPerSector);
-
-            auto success = writeToDevice(portNumber, physicalDmaAddress, dmaSize, commandFis, atapiCommand);
-
-            delete reinterpret_cast<uint8_t*>(dmaBuffer);
-            return success ? sectorCount : 0;
-        }
-    }*/
 
     pub unsafe fn performAtaIO(
         &self,
@@ -1173,12 +1079,11 @@ impl AhciController {
         );
     }
 
-    unsafe fn teste_lesen(&self, portnr: u32) {
+    unsafe fn teste_lesen(&self, portnr: u32, arr_len: u32) {
         let id_device = self.identify_device(portnr);
         let sector_size = id_device.bytesPerSector;
 
-        const arr_len: u32 = 1;
-        const read_bytes: u32 = SEKTORGROESSE * arr_len;
+        let read_bytes: u32 = SEKTORGROESSE * arr_len;
         let single_region = AhciController::allocate_heap_region(read_bytes);
         self.performAtaIO(
             portnr,
@@ -1189,31 +1094,36 @@ impl AhciController {
             arr_len,
         );
 
-        let mut region_ptr = single_region.start.start_address().as_u64();
-        let mut readable_array = region_ptr as *mut [u8; read_bytes as usize];
-        info!("das gelesene array ist: {:?}", *readable_array);
+        let mut region_ptr = single_region.start.start_address().as_u64() as * mut u8;
+        let mut readable_array = Vec::from_raw_parts(region_ptr, read_bytes as usize, read_bytes as usize);
+        info!("das gelesene array ist: {:?}", readable_array);
     }
 
-    unsafe fn teste_schreiben(&self, portnr: u32) {
-        const arr_len: u32 = 1;
-        const read_bytes: u32 = SEKTORGROESSE * arr_len;
+    unsafe fn teste_schreiben(&self, portnr: u32, arr_len: u32) {
+        let read_bytes: u32 = SEKTORGROESSE * arr_len;
         let id_device = self.identify_device(portnr);
-
-        let single_write_region = AhciController::allocate_heap_region(read_bytes);
-        let mut write_region_ptr =
-            single_write_region.start.start_address().as_u64() as *mut [u8; read_bytes as usize];
-        *write_region_ptr = [9; (SEKTORGROESSE * arr_len) as usize];
-        let mut writable_array = write_region_ptr as *mut [u8; read_bytes as usize];
+        //erzeuge einen neuen buffer
+        let write_region = AhciController::allocate_heap_region(read_bytes);
+        //wandel den buffer zum vektor um
+        let mut write_region_ptr = write_region.start.start_address().as_u64() as *mut u8;
+        let mut write_vec = Vec::from_raw_parts(write_region_ptr, read_bytes as usize, read_bytes as usize);
+        //schreibe in den Vector:
+        for x in write_vec.iter_mut(){
+            *x = 9;
+        }
+        
+        
+        
         info!(
             "das zu schreibende array ist (kontrollwert): {:?}",
-            *writable_array
+            write_vec
         );
         //schreibe das array an die Stelle in den Speicher:
         self.performAtaIO(
             portnr,
             &id_device,
             TransferMode::WRITE,
-            single_write_region,
+            write_region,
             0,
             arr_len,
         );
@@ -1227,9 +1137,9 @@ impl AhciController {
             0,
             arr_len,
         );
-        let mut ctrl_region_ptr = ctrl_single_region.start.start_address().as_u64();
-        let mut ctrl_readable_array = ctrl_region_ptr as *mut [u8; read_bytes as usize];
-        info!("das gelesene kontrollarray ist: {:?}", *ctrl_readable_array);
+        let mut ctrl_region_ptr = ctrl_single_region.start.start_address().as_u64() as *mut u8;
+        let mut ctrl_readable_array = Vec::from_raw_parts(ctrl_region_ptr, read_bytes as usize, read_bytes as usize);
+        info!("das gelesene kontrollarray ist: {:?}", ctrl_readable_array);
     }
 }
 
