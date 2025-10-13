@@ -83,7 +83,7 @@ struct AhciController {
 #[allow(warnings)]
 #[repr(C, packed)]
 #[derive(Debug, Clone, Copy)]
-struct HBARegister {
+struct HBARegister {//passt das so???
     hostCapabilities: u32,
     globalHostControl: u32,
     interruptStatus: u32,
@@ -325,6 +325,18 @@ struct FisRegisterHostToDevice {
 
 #[allow(warnings)]
 pub fn init() {
+    //für die Dokumentation
+    /*info!("teste pointer");
+    unsafe{
+        let start = 0x00;
+        let u8_ptr = (start as *mut u8).offset(1);               //0x1
+        let u16_ptr = (start as *mut u16).offset(1);            //0x2
+        let u32_ptr = (start as *mut u32).offset(1);            //0x4
+        let u64_ptr = (start as * mut u64).offset(1);           //0x8
+        let u128_ptr = (start as *mut u128).offset(1);         //0x10
+        let usize_ptr = (start as *mut usize).offset(1);      //0x8
+    }*/
+
     info!("searching the bus for mass storage devices that use sata");
     let mut found_devices = pci_bus().search_by_class(
         MASS_STORAGE_DEVICE as BaseClass,
@@ -408,7 +420,7 @@ pub fn init() {
         let single_write_region = AhciController::allocate_heap_region(read_bytes);
         let mut write_region_ptr =
             single_write_region.start.start_address().as_u64() as *mut [u8; read_bytes as usize];
-        *write_region_ptr = [8; (512 * arr_len) as usize];
+        *write_region_ptr = [9; (512 * arr_len) as usize];
         let mut writable_array = write_region_ptr as *mut [u8; read_bytes as usize];
         info!(
             "das zu schreibende array ist (kontrollwert): {:?}",
@@ -611,6 +623,7 @@ impl AhciController {
         }
     }
 
+    //todo, falls noch nötig
     pub unsafe fn check_bios_handoff(&self) {
         //check if the version is high enough
         info!("enter check bios handoff func");
@@ -1081,7 +1094,7 @@ impl AhciController {
         auto &hostToDeviceFis = *reinterpret_cast<FisRegisterHostToDevice*>(commandFis);
         hostToDeviceFis.type = REGISTER_HOST_TO_DEVICE;
         hostToDeviceFis.commandControl = 1;
-        hostToDeviceFis.command = mode == READ ? READ_DMA_EX : WRITE_DMA_EX;        (todo)
+        hostToDeviceFis.command = mode == READ ? READ_DMA_EX : WRITE_DMA_EX;       
 
         hostToDeviceFis.device = 1 << 6; // LBA mode
 
@@ -1175,7 +1188,7 @@ impl AhciController {
 
             //hier bekomme ich einen Buffer zurück
 
-            buffer = self
+           let result = self
                 .read_from_device(
                     portnr,
                     sector_count * (deviceInfo.bytesPerSector as u32),
@@ -1183,8 +1196,12 @@ impl AhciController {
                     atapi_cmd,
                 )
                 .unwrap();
-
-            //warum wurde das im hhuOS kopiert, wenn man nicht einfach so den Buffer einfügen kann?
+            unsafe {
+                let resptr = result.start.start_address().as_u64() as *mut u8;
+                let bufptr = buffer.start.start_address().as_u64() as *mut u8;
+                ptr::copy_nonoverlapping(resptr, bufptr,(sector_count * (deviceInfo.bytesPerSector as  u32)) as usize);
+            }
+            
         } else {
             host_to_device_fis.command = WRITE_DMA_EX;
             //copy the struct to the array
@@ -1209,7 +1226,6 @@ impl AhciController {
             return success;
         }
 
-        //unterscheide zwischen read und write
 
         return true;
     }
