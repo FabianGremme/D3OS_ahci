@@ -49,6 +49,9 @@ const ATA_PACKET: u8 = 0xa0;
 const ATAPI_READ: u8 = 0xa8;
 const ATAPI_READ_CAPACITY: u8 = 0x25;
 
+//sektorgroesse
+const SEKTORGROESSE: u32 = 512;
+
 enum BiosHandoffFlags {
     BIOS_OWNED_SEMAPHORE = 1 << 0,
     OS_OWNED_SEMAPHORE = 1 << 1,
@@ -723,22 +726,24 @@ impl AhciController {
             ptr::copy_nonoverlapping(src, ptr, size_of::<FisRegisterHostToDevice>());
         }
 
-        //ist das die richtige Umwandlung von der phys frame range?
-        let mut info = self
-            .read_from_device(portnr, 512, command_fis, atapi_cmd)
-            .unwrap();
-        let mut info_ptr = info.start.start_address().as_u64();
-        let mut output = info_ptr as *mut DeviceInfo;
+        // hier wird ein DMA Buffer erzeugt
+        let mut dma_reg = AhciController::allocate_heap_region(SEKTORGROESSE);
+        let dma_reg_addr = dma_reg.start.start_address().as_u64();
+
+        self.read_from_device(portnr, dma_reg_addr, SEKTORGROESSE, command_fis, atapi_cmd);
+
+        let mut output = dma_reg_addr as *mut DeviceInfo;
         unsafe { output.read() }
     }
 
     pub unsafe fn read_from_device(
         &self,
         portnr: u32,
+        physical_dma: u64,
         byte_count: u32,
         mut command_fis: [u8; 64],
         atapi_command: [u8; 16],
-    ) -> Option<PhysFrameRange> {
+    ) {
         let mut port = self.ports_start.offset(portnr.try_into().unwrap());
         let mut command_list_addr = (*port).commandListBaseAddress as u64
             | (((*port).commandListBaseAddressUpper as u64) << 32);
@@ -749,21 +754,15 @@ impl AhciController {
 
             if Self::check_port_usable(port) != true {
                 info!("ERR: Port is not usable");
-                return None;
             }
 
             let slot = self.find_cmd_slot(port);
             if slot == -1 {
                 info!("ERR: Slot nicht gefunden");
-                return None;
             }
 
-            // hier wird ein DMA Buffer erzeugt
-            let mut dma_reg = AhciController::allocate_heap_region(byte_count);
-            let dma_reg_addr = dma_reg.start.start_address().as_u64();
-
             // hier wird nur die command table gemacht, nicht die command list
-            let mut cmd_table = self.create_hba_cmd_table(byte_count, dma_reg_addr);
+            let mut cmd_table = self.create_hba_cmd_table(byte_count, physical_dma);
             cmd_table.commandFis = command_fis.clone();
             cmd_table.atapiCommand = atapi_command.clone();
 
@@ -806,7 +805,7 @@ impl AhciController {
                 info!("ERR: issueCommand hatte einen Fehler")
             }
 
-            Some(dma_reg)
+            //Some(physical_dma)
         }
     }
 
@@ -1104,19 +1103,17 @@ impl AhciController {
                 ptr::copy_nonoverlapping(src, ptr, size_of::<FisRegisterHostToDevice>());
             }
 
-            //schicke die Daten an read_from_device
+            // der DMA Buffer existiert schon und muss demnach nicht verändert werden
+            let buffer_addr = buffer.start.start_address().as_u64();
 
-            //hier bekomme ich einen Buffer zurück
-
-            let result = self
-                .read_from_device(
-                    portnr,
-                    sector_count * (deviceInfo.bytesPerSector as u32),
-                    command_fis,
-                    atapi_cmd,
-                )
-                .unwrap();
-            unsafe {
+            self.read_from_device(
+                portnr,
+                buffer_addr,
+                sector_count * (deviceInfo.bytesPerSector as u32),
+                command_fis,
+                atapi_cmd,
+            );
+            /*unsafe {
                 let resptr = result.start.start_address().as_u64() as *mut u8;
                 let bufptr = buffer.start.start_address().as_u64() as *mut u8;
                 ptr::copy_nonoverlapping(
@@ -1124,7 +1121,7 @@ impl AhciController {
                     bufptr,
                     (sector_count * (deviceInfo.bytesPerSector as u32)) as usize,
                 );
-            }
+            }*/
         } else {
             host_to_device_fis.command = WRITE_DMA_EX;
             //copy the struct to the array
@@ -1179,28 +1176,33 @@ impl AhciController {
     unsafe fn teste_lesen(&self, portnr: u32) {
         let id_device = self.identify_device(portnr);
         let sector_size = id_device.bytesPerSector;
-        
 
         const arr_len: u32 = 1;
-        const read_bytes: u32 = 512 * arr_len;
+        const read_bytes: u32 = SEKTORGROESSE * arr_len;
         let single_region = AhciController::allocate_heap_region(read_bytes);
-        self.performAtaIO(portnr, &id_device, TransferMode::READ, single_region, 0, arr_len);
+        self.performAtaIO(
+            portnr,
+            &id_device,
+            TransferMode::READ,
+            single_region,
+            0,
+            arr_len,
+        );
 
         let mut region_ptr = single_region.start.start_address().as_u64();
         let mut readable_array = region_ptr as *mut [u8; read_bytes as usize];
         info!("das gelesene array ist: {:?}", *readable_array);
-        
     }
 
-    unsafe fn teste_schreiben(&self, portnr: u32){
+    unsafe fn teste_schreiben(&self, portnr: u32) {
         const arr_len: u32 = 1;
-        const read_bytes: u32 = 512 * arr_len;
+        const read_bytes: u32 = SEKTORGROESSE * arr_len;
         let id_device = self.identify_device(portnr);
 
         let single_write_region = AhciController::allocate_heap_region(read_bytes);
         let mut write_region_ptr =
             single_write_region.start.start_address().as_u64() as *mut [u8; read_bytes as usize];
-        *write_region_ptr = [9; (512 * arr_len) as usize];
+        *write_region_ptr = [9; (SEKTORGROESSE * arr_len) as usize];
         let mut writable_array = write_region_ptr as *mut [u8; read_bytes as usize];
         info!(
             "das zu schreibende array ist (kontrollwert): {:?}",
@@ -1280,13 +1282,3 @@ impl HbaPort {
 
 // Fehler werden mit f zu geschrieben, weil das -1 repräsentiert
 // Warum bekomme ich viele Ports mit der selben Adresse? gibt es nur einen Port, oder woran liegt das?  (aktuell existiert ein Port)
-//welche Verträge hat die Uni mit Verlegern? kostenlose Bücher?
-
-//device erkennung impl
-
-//prdt richtig machen (also das zusammengesetzte struct löschen und mit pointern machen) (fertig)
-//schauen, wo der Speicher aus der Bacheloararbeit gemappt wird (das wurde im code erst mal kaum richtig verwendet)
-
-//Tests die fehlschlagen:
-//zu große Regionen gibt irgendwann einen multiplikations overflow
-//schreiben und lesen danach gibt nicht das geschriebene array zurück
