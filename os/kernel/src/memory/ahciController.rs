@@ -876,8 +876,6 @@ impl AhciController {
         }
     }
 
-
-
     pub unsafe fn write_to_device(
         &self,
         portnr: u32,
@@ -1019,15 +1017,7 @@ impl AhciController {
                 command_fis,
                 atapi_cmd,
             );
-            /*unsafe {
-                let resptr = result.start.start_address().as_u64() as *mut u8;
-                let bufptr = buffer.start.start_address().as_u64() as *mut u8;
-                ptr::copy_nonoverlapping(
-                    resptr,
-                    bufptr,
-                    (sector_count * (deviceInfo.bytesPerSector as u32)) as usize,
-                );
-            }*/
+
         } else {
             host_to_device_fis.command = WRITE_DMA_EX;
             //copy the struct to the array
@@ -1110,9 +1100,7 @@ impl AhciController {
         //schreibe in den Vector:
         for x in write_vec.iter_mut(){
             *x = 9;
-        }
-        
-        
+        }     
         
         info!(
             "das zu schreibende array ist (kontrollwert): {:?}",
@@ -1192,3 +1180,46 @@ impl HbaPort {
 
 // Fehler werden mit f zu geschrieben, weil das -1 repräsentiert
 // Warum bekomme ich viele Ports mit der selben Adresse? gibt es nur einen Port, oder woran liegt das?  (aktuell existiert ein Port)
+
+
+
+
+
+
+
+//hier die impl für Block Device
+// finde die richtige Darstellungsweise, soll ich ein neues struct erstellen?
+
+// Idee: ich mache das Struct so wie im Drive, dann wird innerhalb des Drive nur read, write, info zeug so gemacht. alles andere ist dann in der
+// impl des ahci controllers
+/*
+pub struct IdeDrive {
+    controller: Arc<IdeController>,     // können mehrere Drives sich einen AHCI Controller nehmen? im ahci controller stehen ja nur Adressen
+    info: DriveInfo
+}
+
+impl BlockDevice for IdeDrive {
+    fn read(&self, sector: u64, count: usize, buffer: &mut [u8]) -> usize {
+        let channel = &mut self.controller.channels[self.info.channel as usize].lock();
+        channel.perform_ata_io(&self.info, TransferMode::Read, sector, count, buffer)
+    }
+
+    fn write(&self, sector: u64, count: usize, buffer: &[u8]) -> usize {
+        // Channel::perform_ata_io() expects a mutable buffer, so we need to cast it to a mutable slice.
+        // This is safe, as the buffer is not modified by the function.
+        let buffer = unsafe { slice::from_raw_parts_mut(buffer.as_ptr().cast_mut(), buffer.len()) };
+
+        let channel = &mut self.controller.channels[self.info.channel as usize].lock();
+        channel.perform_ata_io(&self.info, TransferMode::Write, sector, count, buffer)
+    }
+
+    fn sector_count(&self) -> u64 {
+        self.info.sector_count()
+    }
+
+    fn sector_size(&self) -> u16 {
+        self.info.sector_size
+    }
+}
+
+*/
