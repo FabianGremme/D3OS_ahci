@@ -1129,6 +1129,31 @@ impl AhciController {
         let mut ctrl_readable_array = Vec::from_raw_parts(ctrl_region_ptr, read_bytes as usize, read_bytes as usize);
         info!("das gelesene kontrollarray ist: {:?}", ctrl_readable_array);
     }
+
+    //diese Funktionen soll dann auch von Block Device ausgeführt werden
+    unsafe fn lese(&self, sector: u64, count: usize, buffer: &mut [u8]) -> usize{
+        //sector ist der Startsektor
+        //count ist die Anzahl der Sektoren
+        // in buffer soll reingeschrieben werden
+        //output ist die Anzahl an Sektoren
+        
+        // es muss wohl ein copy passieren, damit ich das Ergebnis von ataIO an den Buffer schreiben kann
+
+
+        return count;
+    }
+
+    unsafe fn schreibe(&self, sector: u64, count: usize, buffer: &[u8])-> usize{
+        //sector ist der Startsektor
+        //count ist die Anzahl der Sektoren
+        // in buffer soll reingeschrieben werden
+        //output ist die Anzahl an Sektoren
+        
+        // es muss wohl ein copy passieren, damit der Bufferinhalt in die PhysFrame range geschrieben werden kann
+
+
+        return count;
+    }
 }
 
 #[allow(warnings)]
@@ -1195,7 +1220,8 @@ impl HbaPort {
 /*
 pub struct IdeDrive {
     controller: Arc<IdeController>,     // können mehrere Drives sich einen AHCI Controller nehmen? im ahci controller stehen ja nur Adressen
-    info: DriveInfo
+    info: DriveInfo,
+    portnr: u32,
 }
 
 impl BlockDevice for IdeDrive {
