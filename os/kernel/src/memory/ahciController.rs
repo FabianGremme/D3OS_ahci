@@ -831,7 +831,7 @@ impl AhciController {
         // alloc frame nötig
         // dann addr weitergeben
         //später ggf mehrere frames nötig
-        let mut allocated = frames::alloc(1); //hier gibt es Probleme???
+        let mut allocated = frames::alloc(1);
         let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
 
         //schreibe 0 in die ganzen Felder
@@ -958,8 +958,6 @@ impl AhciController {
         return true;
     }
 
-
-
     pub unsafe fn performAtaIO(
         &self,
         portnr: u32,
@@ -1017,7 +1015,6 @@ impl AhciController {
                 command_fis,
                 atapi_cmd,
             );
-
         } else {
             host_to_device_fis.command = WRITE_DMA_EX;
             //copy the struct to the array
@@ -1084,9 +1081,12 @@ impl AhciController {
             arr_len,
         );
 
-        let mut region_ptr = single_region.start.start_address().as_u64() as * mut u8;
-        let mut readable_array = Vec::from_raw_parts(region_ptr, read_bytes as usize, read_bytes as usize);
+        let mut region_ptr = single_region.start.start_address().as_u64() as *mut u8;
+        let mut readable_array =
+            Vec::from_raw_parts(region_ptr, read_bytes as usize, read_bytes as usize);
         info!("das gelesene array ist: {:?}", readable_array);
+        // hier kommt noch ein bad free, weil der vektor nicht ganz klar kommt
+        //frames::free(single_region);
     }
 
     unsafe fn teste_schreiben(&self, portnr: u32, arr_len: u32) {
@@ -1096,12 +1096,13 @@ impl AhciController {
         let write_region = AhciController::allocate_heap_region(read_bytes);
         //wandel den buffer zum vektor um
         let mut write_region_ptr = write_region.start.start_address().as_u64() as *mut u8;
-        let mut write_vec = Vec::from_raw_parts(write_region_ptr, read_bytes as usize, read_bytes as usize);
+        let mut write_vec =
+            Vec::from_raw_parts(write_region_ptr, read_bytes as usize, read_bytes as usize);
         //schreibe in den Vector:
-        for x in write_vec.iter_mut(){
+        for x in write_vec.iter_mut() {
             *x = 9;
-        }     
-        
+        }
+
         info!(
             "das zu schreibende array ist (kontrollwert): {:?}",
             write_vec
@@ -1126,31 +1127,84 @@ impl AhciController {
             arr_len,
         );
         let mut ctrl_region_ptr = ctrl_single_region.start.start_address().as_u64() as *mut u8;
-        let mut ctrl_readable_array = Vec::from_raw_parts(ctrl_region_ptr, read_bytes as usize, read_bytes as usize);
+        let mut ctrl_readable_array =
+            Vec::from_raw_parts(ctrl_region_ptr, read_bytes as usize, read_bytes as usize);
         info!("das gelesene kontrollarray ist: {:?}", ctrl_readable_array);
     }
 
     //diese Funktionen soll dann auch von Block Device ausgeführt werden
-    unsafe fn lese(&self, sector: u64, count: usize, buffer: &mut [u8]) -> usize{
+    unsafe fn lese(
+        &self,
+        sector: u64,
+        count: usize,
+        buffer: &mut [u8],
+        portnr: u32,
+        id_device: DeviceInfo,
+    ) -> usize {
         //sector ist der Startsektor
         //count ist die Anzahl der Sektoren
         // in buffer soll reingeschrieben werden
         //output ist die Anzahl an Sektoren
-        
-        // es muss wohl ein copy passieren, damit ich das Ergebnis von ataIO an den Buffer schreiben kann
+        let sector_size = id_device.bytesPerSector;
 
+        let read_bytes: u32 = SEKTORGROESSE * count as u32;
+        let region_buffer = AhciController::allocate_heap_region(read_bytes);
+        self.performAtaIO(
+            portnr,
+            &id_device,
+            TransferMode::READ,
+            region_buffer,
+            sector,
+            count as u32,
+        );
+
+        //kopiere in den output
+        // könnte funktionieren
+        let mut region_ptr = region_buffer.start.start_address().as_u64() as *mut u8;
+        ptr::copy_nonoverlapping(region_ptr, buffer.as_mut_ptr(), read_bytes as usize);
+
+        // hier müsste noch ein free gemacht werden
+        //frames::free(region_buffer);
 
         return count;
     }
 
-    unsafe fn schreibe(&self, sector: u64, count: usize, buffer: &[u8])-> usize{
+    unsafe fn schreibe(
+        &self,
+        sector: u64,
+        count: usize,
+        buffer: &[u8],
+        portnr: u32,
+        id_device: DeviceInfo,
+    ) -> usize {
         //sector ist der Startsektor
         //count ist die Anzahl der Sektoren
         // in buffer soll reingeschrieben werden
         //output ist die Anzahl an Sektoren
-        
-        // es muss wohl ein copy passieren, damit der Bufferinhalt in die PhysFrame range geschrieben werden kann
+        let read_bytes: u32 = SEKTORGROESSE * count as u32;
 
+        //erstelle eine PhysFrameRange für ataIO
+        let region = AhciController::allocate_heap_region(read_bytes);
+
+        //kopiere den Buffer in die Region
+        let mut region_ptr = region.start.start_address().as_u64() as *mut u8;
+        ptr::copy_nonoverlapping(buffer.as_ptr(), region_ptr, read_bytes as usize);
+        
+        // reiche alles an ataIO weiter
+        let success = self.performAtaIO(
+            portnr,
+            &id_device,
+            TransferMode::WRITE,
+            region,
+            sector,
+            count as u32,
+        );
+        if !success{
+            return 0;
+        }
+
+        //gib den Speicher wieder frei
+        //frames::free(region);
 
         return count;
     }
@@ -1217,11 +1271,36 @@ impl HbaPort {
 
 // Idee: ich mache das Struct so wie im Drive, dann wird innerhalb des Drive nur read, write, info zeug so gemacht. alles andere ist dann in der
 // impl des ahci controllers
-/*
-pub struct IdeDrive {
-    controller: Arc<IdeController>,     // können mehrere Drives sich einen AHCI Controller nehmen? im ahci controller stehen ja nur Adressen
-    info: DriveInfo,
+
+pub struct AHCIDrive {
+    controller: Arc<AhciController>,     // können mehrere Drives sich einen AHCI Controller nehmen? im ahci controller stehen ja nur Adressen
+    info: DeviceInfo,
     portnr: u32,
+}
+/*
+
+impl IdeDrive {
+    fn new(controller: Arc<IdeController>, info: DriveInfo) -> Self {
+        Self { controller, info }
+    }
+}
+
+//in der init müssen noch die Block Devices richtig gemacht werden:
+pub fn init() {
+    let devices = pci_bus().search_by_class(0x01, 0x01);
+    for device in devices {
+        let device_id = device.read().header().id(pci_bus().config_space());
+        info!("Found IDE controller [{}:{}]", device_id.0, device_id.1);
+
+        let ide_controller = Arc::new(IdeController::new(device));
+        IdeController::plugin(Arc::clone(&ide_controller));
+
+        let found_drives = ide_controller.init_drives();
+        for drive in found_drives.iter() {
+            let block_device = Arc::new(IdeDrive::new(Arc::clone(&ide_controller), *drive));
+            add_block_device("ata", block_device);
+        }
+    }
 }
 
 impl BlockDevice for IdeDrive {
