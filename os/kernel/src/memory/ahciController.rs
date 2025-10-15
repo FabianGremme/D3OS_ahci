@@ -628,8 +628,8 @@ impl AhciController {
             (*port).commandListBaseAddress = lower_addr;
             (*port).commandListBaseAddressUpper = upper_addr;
             self.start_cmd_engine(port);
-            (*port).sataError = 0xffffffff;
-            (*port).interruptStatus = 0xffffffff;
+            (*port).sataError = 0x00000000; //0xffffffff;
+            (*port).interruptStatus = 0x00000000; //0xffffffff;
             (*port).interruptEnable = 0x00000000;
             info!("rebase of port {} done", port_nr);
         }
