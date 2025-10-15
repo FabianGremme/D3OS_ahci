@@ -621,7 +621,7 @@ impl AhciController {
         if Self::check_port_usable(port) {
             info!("portnr {} bekommt den rebase", port_nr);
             self.stop_cmd_engine(port);
-            let allocated = frames::alloc(1);
+            let allocated = frames::alloc(2);
             let full_addr = allocated.start.start_address().as_u64();
             let lower_addr = full_addr as u32;
             let upper_addr = (full_addr >> 32) as u32;
