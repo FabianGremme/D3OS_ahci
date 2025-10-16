@@ -347,10 +347,12 @@ pub fn init() {
         SATA_CONTROLLER as SubClass,
     );
     info!(
-        "habe die folgenden Geräte gefunden {:?}",
+        "found devices nr: {:?}",
         found_devices.len()
     );
+    info!("achtung vor unwrap");
     let mut device = found_devices.pop().unwrap();
+    info!("achtung nach unwrap");
     unsafe {
         let mut ahci_controller = Arc::new(AhciController::new(device));
         info!(
@@ -379,10 +381,9 @@ pub fn init() {
         //ahci_controller.find_slot_all_ports();
 
         // hier wird in den Speicher geschrieben/ gelesen
-        //ahci_controller.teste_lesen_schreiben();
         ahci_controller.test_identify_device_on_port(0);
-        ahci_controller.teste_lesen(0, 1);
-        ahci_controller.teste_schreiben(0, 1);
+        //ahci_controller.teste_lesen(0, 1);
+        //ahci_controller.teste_schreiben(0, 1);
     }
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
 }
