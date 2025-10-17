@@ -382,8 +382,9 @@ pub fn init() {
 
         // hier wird in den Speicher geschrieben/ gelesen
         ahci_controller.test_identify_device_on_port(0);
-        //ahci_controller.teste_lesen(0, 1);
-        //ahci_controller.teste_schreiben(0, 1);
+        ahci_controller.teste_lesen(0, 1);
+        info!("teste schreiben");
+        ahci_controller.teste_schreiben(0, 1);
     }
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
 }
@@ -1083,11 +1084,8 @@ impl AhciController {
         );
 
         let mut region_ptr = single_region.start.start_address().as_u64() as *mut u8;
-        let mut readable_array =
-            Vec::from_raw_parts(region_ptr, read_bytes as usize, read_bytes as usize);
+        let mut readable_array =            Vec::from_raw_parts(region_ptr, read_bytes as usize, read_bytes as usize);
         info!("das gelesene array ist: {:?}", readable_array);
-        // hier kommt noch ein bad free, weil der vektor nicht ganz klar kommt
-        //frames::free(single_region);
     }
 
     unsafe fn teste_schreiben(&self, portnr: u32, arr_len: u32) {

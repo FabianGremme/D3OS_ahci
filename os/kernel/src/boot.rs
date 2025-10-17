@@ -287,7 +287,8 @@ pub extern "C" fn start(multiboot2_magic: u32, multiboot2_addr: *const BootInfor
     storage::init();
 
     // Initialize network stack
-    //network::init();
+    // passt nicht für echte hardware muss aber für qemu drin sein
+    network::init();
 
     // Set up network interface for emulated QEMU network (IP: 10.0.2.15, Gateway: 10.0.2.2)
     if let Some(rtl8139) = rtl8139()
