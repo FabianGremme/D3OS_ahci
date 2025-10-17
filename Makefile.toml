@@ -33,7 +33,7 @@ args = [
     "-drive", "driver=raw,if=none,id=boot,file.filename=d3os.img",  # Boot drive
     "-drive", "driver=raw,if=none,id=hdd,file.filename=hdd.img",    # HDD drive containing root filesystem
     "-device", "ide-hd,bus=ahci.0,drive=boot",  # Attach boot drive to AHCI controller (boots faster than on the IDE controller)
-    "-device", "ide-hd,bus=ide.0,drive=hdd",    # Attach HDD drive to IDE controller (D3OS does not support AHCI yet)
+    "-device", "ide-hd,bus=ahci.1,drive=hdd",    # Attach HDD drive to IDE controller (D3OS does not support AHCI yet)
 
     # NVDIMM configuration
     "-device", "nvdimm,memdev=mem1,id=nv1,label-size=2M",

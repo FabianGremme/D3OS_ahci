@@ -367,6 +367,7 @@ pub fn init() {
         for i in 0..amt_ports {
             ahci_controller.rebase_port(i);
         }
+        ahci_controller.identify_all_ports();
         info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
         info!("check if device has ahci mode enabled");
@@ -378,13 +379,12 @@ pub fn init() {
         info!("check nr of available command slots");
         ahci_controller.check_nr_of_command_slots();
 
-        //ahci_controller.find_slot_all_ports();
+
 
         // hier wird in den Speicher geschrieben/ gelesen
-        ahci_controller.test_identify_device_on_port(0);
-        ahci_controller.teste_lesen(0, 1);
-        info!("teste schreiben");
-        ahci_controller.teste_schreiben(0, 1);
+        
+        //ahci_controller.teste_lesen(0, 1);
+        //ahci_controller.teste_schreiben(0, 1);
     }
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
 }
@@ -504,6 +504,7 @@ impl AhciController {
         let amt_port = self.check_cap_nr_of_ports();
         for i in 0..amt_port - 1 {
             let current_port = self.ports_start.offset(i.try_into().unwrap());
+            info!("teste Port mit der Nummer {}", i);
             if Self::check_port_usable(current_port) {
                 let signature = (*current_port).signature;
                 info!(
@@ -514,11 +515,21 @@ impl AhciController {
         }
     }
 
+    pub unsafe fn identify_all_ports(&self) {
+        let amt_port = self.check_cap_nr_of_ports();
+        for i in 0..amt_port - 1 {
+            let current_port = self.ports_start.offset(i.try_into().unwrap());
+            info!("teste Port mit der Nummer {}", i);
+            if Self::check_port_usable(current_port) {
+                Self::test_identify_device_on_port(&self, i);
+            }
+        }
+    }
+
     pub unsafe fn check_port_usable(port: *mut HbaPort) -> bool {
         let ssts = (*port).sataStatus;
         let ipm = (ssts >> 8) & 0x0F;
         let det = ssts & 0x0F;
-
         if ipm != 0x01 {
             //0x01 means that the interface of the device is active. only then the device can be accessed
             info!("ERR: interface is not active");
