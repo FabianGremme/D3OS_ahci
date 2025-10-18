@@ -812,8 +812,6 @@ impl AhciController {
 
             (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
             (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
-            //warum das nicht in c++?
-            (*first_cmd_header).physicalRegionDescriptorByteCount = byte_count;
 
             let success = (*port).issueCommand(slot as u32);
             if !success {
@@ -965,7 +963,6 @@ impl AhciController {
 
         (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
         (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
-        (*first_cmd_header).physicalRegionDescriptorByteCount = byte_count;
 
         let success = (*port).issueCommand(slot as u32);
         if !success {
