@@ -5,6 +5,7 @@ use crate::memory::vma::VmaType;
 use crate::memory::{MemorySpace, PAGE_SIZE, ahciController, frames, pages};
 use crate::process::scheduler::Scheduler;
 use crate::storage::add_block_device;
+use crate::storage::block::BlockDevice;
 use crate::syscall::sys_time::{sys_get_system_time, wait_ms};
 use crate::{pci_bus, process_manager, scheduler};
 use alloc::alloc::alloc_zeroed;
@@ -169,7 +170,7 @@ pub(crate) struct HbaCommandTable {
 
 #[allow(warnings)]
 #[repr(C, packed)]
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 struct DeviceInfo {
     config: u16,            /* lots of obsolete bit flags */
     cyls: u16,              /* obsolete */
@@ -346,10 +347,7 @@ pub fn init() {
         MASS_STORAGE_DEVICE as BaseClass,
         SATA_CONTROLLER as SubClass,
     );
-    info!(
-        "found devices nr: {:?}",
-        found_devices.len()
-    );
+    info!("found devices nr: {:?}", found_devices.len());
     info!("achtung vor unwrap");
     let mut device = found_devices.pop().unwrap();
     info!("achtung nach unwrap");
@@ -367,7 +365,8 @@ pub fn init() {
         for i in 0..amt_ports {
             ahci_controller.rebase_port(i);
         }
-        ahci_controller.identify_all_ports();
+        ahci_controller.test_identify_all_ports();
+
         info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
         info!("check if device has ahci mode enabled");
@@ -379,12 +378,10 @@ pub fn init() {
         info!("check nr of available command slots");
         ahci_controller.check_nr_of_command_slots();
 
-
-
         // hier wird in den Speicher geschrieben/ gelesen
-        
-        ahci_controller.teste_lesen(1, 1);
-        ahci_controller.teste_schreiben(1, 1);
+
+        ahci_controller.test_read(1, 1);
+        ahci_controller.test_write(1, 1);
     }
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
 }
@@ -515,7 +512,7 @@ impl AhciController {
         }
     }
 
-    pub unsafe fn identify_all_ports(&self) {
+    pub unsafe fn test_identify_all_ports(&self) {
         let amt_port = self.check_cap_nr_of_ports();
         for i in 0..amt_port - 1 {
             let current_port = self.ports_start.offset(i.try_into().unwrap());
@@ -1081,8 +1078,8 @@ impl AhciController {
         );
     }
 
-    unsafe fn teste_lesen(&self, portnr: u32, arr_len: u32) {
-        if portnr == 0{
+    unsafe fn test_read(&self, portnr: u32, arr_len: u32) {
+        if portnr == 0 {
             info!("Achtung es wird vom Bootimage gelesen!");
         }
         let id_device = self.identify_device(portnr);
@@ -1100,12 +1097,13 @@ impl AhciController {
         );
 
         let mut region_ptr = single_region.start.start_address().as_u64() as *mut u8;
-        let mut readable_array =            Vec::from_raw_parts(region_ptr, read_bytes as usize, read_bytes as usize);
+        let mut readable_array =
+            Vec::from_raw_parts(region_ptr, read_bytes as usize, read_bytes as usize);
         info!("das gelesene array ist: {:?}", readable_array);
     }
 
-    unsafe fn teste_schreiben(&self, portnr: u32, arr_len: u32) {
-        if portnr == 0{
+    unsafe fn test_write(&self, portnr: u32, arr_len: u32) {
+        if portnr == 0 {
             info!("Achtung es wird ins Bootimage geschrieben!");
         }
         let read_bytes: u32 = SEKTORGROESSE * arr_len;
@@ -1151,7 +1149,7 @@ impl AhciController {
     }
 
     //diese Funktionen soll dann auch von Block Device ausgeführt werden
-    unsafe fn lese(
+    unsafe fn read(
         &self,
         sector: u64,
         count: usize,
@@ -1187,7 +1185,7 @@ impl AhciController {
         return count;
     }
 
-    unsafe fn schreibe(
+    unsafe fn write(
         &self,
         sector: u64,
         count: usize,
@@ -1207,7 +1205,7 @@ impl AhciController {
         //kopiere den Buffer in die Region
         let mut region_ptr = region.start.start_address().as_u64() as *mut u8;
         ptr::copy_nonoverlapping(buffer.as_ptr(), region_ptr, read_bytes as usize);
-        
+
         // reiche alles an ataIO weiter
         let success = self.performAtaIO(
             portnr,
@@ -1217,7 +1215,7 @@ impl AhciController {
             sector,
             count as u32,
         );
-        if !success{
+        if !success {
             return 0;
         }
 
@@ -1225,6 +1223,18 @@ impl AhciController {
         //frames::free(region);
 
         return count;
+    }
+
+    pub unsafe fn init_all_ports_as_block_devices(&self) {
+        let amt_port = self.check_cap_nr_of_ports();
+        for i in 0..amt_port - 1 {
+            let current_port = self.ports_start.offset(i.try_into().unwrap());
+            info!("init Port {} as block device", i);
+            if Self::check_port_usable(current_port) {
+                let ahci_drive = Arc::new(AHCIDrive::new(Arc::new(self.clone()), i));
+                add_block_device("ata", ahci_drive);             
+            }
+        }
     }
 }
 
@@ -1271,39 +1281,53 @@ impl HbaPort {
     }
 }
 
-// Todo:
-//Comand Liste anschauen (es werden 31 command slots unterstützt) (es wird kein weiterer gefunden)
-//command table mit allen 32 headern versuchen zu allocaten
-
-// Fehler werden mit f zu geschrieben, weil das -1 repräsentiert
-// Warum bekomme ich viele Ports mit der selben Adresse? gibt es nur einen Port, oder woran liegt das?  (aktuell existiert ein Port)
-
-
-
-
-
-
-
-//hier die impl für Block Device
-// finde die richtige Darstellungsweise, soll ich ein neues struct erstellen?
-
-// Idee: ich mache das Struct so wie im Drive, dann wird innerhalb des Drive nur read, write, info zeug so gemacht. alles andere ist dann in der
-// impl des ahci controllers
-
 pub struct AHCIDrive {
-    controller: Arc<AhciController>,     // können mehrere Drives sich einen AHCI Controller nehmen? im ahci controller stehen ja nur Adressen
+    controller: Arc<AhciController>, // können mehrere Drives sich einen AHCI Controller nehmen? im ahci controller stehen ja nur Adressen
     info: DeviceInfo,
     portnr: u32,
 }
-/*
 
-impl IdeDrive {
-    fn new(controller: Arc<IdeController>, info: DriveInfo) -> Self {
-        Self { controller, info }
+impl AHCIDrive {
+    fn new(controller: Arc<AhciController>, portnr: u32) -> Self {
+        let info = unsafe { controller.identify_device(portnr) };
+        Self {
+            controller,
+            info,
+            portnr,
+        }
     }
 }
 
-//in der init müssen noch die Block Devices richtig gemacht werden:
+impl BlockDevice for AHCIDrive {
+    fn read(&self, sector: u64, count: usize, buffer: &mut [u8]) -> usize {
+        unsafe {
+            self.controller
+                .read(sector, count, buffer, self.portnr, self.info);
+            count
+        }
+    }
+
+    fn write(&self, sector: u64, count: usize, buffer: &[u8]) -> usize {
+        unsafe {
+            self.controller
+                .write(sector, count, buffer, self.portnr, self.info);
+            count
+        }
+    }
+
+    fn sector_count(&self) -> u64 {
+        // schauen ob das passt
+        self.info.lbaCapacity as u64
+    }
+
+    fn sector_size(&self) -> u16 {
+        self.info.bytesPerSector
+    }
+}
+
+/*
+
+    //in der init müssen noch die Block Devices richtig gemacht werden:
 pub fn init() {
     let devices = pci_bus().search_by_class(0x01, 0x01);
     for device in devices {
@@ -1321,28 +1345,19 @@ pub fn init() {
     }
 }
 
-impl BlockDevice for IdeDrive {
-    fn read(&self, sector: u64, count: usize, buffer: &mut [u8]) -> usize {
-        let channel = &mut self.controller.channels[self.info.channel as usize].lock();
-        channel.perform_ata_io(&self.info, TransferMode::Read, sector, count, buffer)
-    }
-
-    fn write(&self, sector: u64, count: usize, buffer: &[u8]) -> usize {
-        // Channel::perform_ata_io() expects a mutable buffer, so we need to cast it to a mutable slice.
-        // This is safe, as the buffer is not modified by the function.
-        let buffer = unsafe { slice::from_raw_parts_mut(buffer.as_ptr().cast_mut(), buffer.len()) };
-
-        let channel = &mut self.controller.channels[self.info.channel as usize].lock();
-        channel.perform_ata_io(&self.info, TransferMode::Write, sector, count, buffer)
-    }
-
-    fn sector_count(&self) -> u64 {
-        self.info.sector_count()
-    }
-
-    fn sector_size(&self) -> u16 {
-        self.info.sector_size
-    }
-}
-
 */
+
+
+
+// Todo:
+//Comand Liste anschauen (es werden 31 command slots unterstützt) (es wird kein weiterer gefunden)
+//command table mit allen 32 headern versuchen zu allocaten
+
+// Fehler werden mit f zu geschrieben, weil das -1 repräsentiert
+// Warum bekomme ich viele Ports mit der selben Adresse? gibt es nur einen Port, oder woran liegt das?  (aktuell existiert ein Port)
+
+//hier die impl für Block Device
+// finde die richtige Darstellungsweise, soll ich ein neues struct erstellen?
+
+// Idee: ich mache das Struct so wie im Drive, dann wird innerhalb des Drive nur read, write, info zeug so gemacht. alles andere ist dann in der
+// impl des ahci controllers
