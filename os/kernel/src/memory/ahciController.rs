@@ -383,8 +383,8 @@ pub fn init() {
 
         // hier wird in den Speicher geschrieben/ gelesen
         
-        //ahci_controller.teste_lesen(0, 1);
-        //ahci_controller.teste_schreiben(0, 1);
+        ahci_controller.teste_lesen(1, 1);
+        ahci_controller.teste_schreiben(1, 1);
     }
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
 }
@@ -812,6 +812,8 @@ impl AhciController {
 
             (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
             (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
+            //warum das nicht in c++?
+            (*first_cmd_header).physicalRegionDescriptorByteCount = byte_count;
 
             let success = (*port).issueCommand(slot as u32);
             if !success {
@@ -943,6 +945,7 @@ impl AhciController {
         if atapi_command[0] != 0 {
             atapi = 1;
         }
+        let write = 1;
 
         //zerteile die Adresse
         let cmd_table_base_addr: u64 = ptr::from_mut(cmd_table) as u64;
@@ -955,12 +958,14 @@ impl AhciController {
         //prdt_len ist 1 (weil nur eine prdt benötigt wird)
         let dword0 = (physical_region_descriptor_table_length << 16) as u32
             | (atapi << 5) as u32
+            | (write << 4) as u32       //es soll geschrieben werden
             | cmd_fis_len as u32;
         (*first_cmd_header).dword0 = dword0;
         info!("dword0 write ist {:b}", dword0);
 
         (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
         (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
+        (*first_cmd_header).physicalRegionDescriptorByteCount = byte_count;
 
         let success = (*port).issueCommand(slot as u32);
         if !success {
@@ -1080,6 +1085,9 @@ impl AhciController {
     }
 
     unsafe fn teste_lesen(&self, portnr: u32, arr_len: u32) {
+        if portnr == 0{
+            info!("Achtung es wird vom Bootimage gelesen!");
+        }
         let id_device = self.identify_device(portnr);
         let sector_size = id_device.bytesPerSector;
 
@@ -1100,6 +1108,9 @@ impl AhciController {
     }
 
     unsafe fn teste_schreiben(&self, portnr: u32, arr_len: u32) {
+        if portnr == 0{
+            info!("Achtung es wird ins Bootimage geschrieben!");
+        }
         let read_bytes: u32 = SEKTORGROESSE * arr_len;
         let id_device = self.identify_device(portnr);
         //erzeuge einen neuen buffer
@@ -1110,7 +1121,7 @@ impl AhciController {
             Vec::from_raw_parts(write_region_ptr, read_bytes as usize, read_bytes as usize);
         //schreibe in den Vector:
         for x in write_vec.iter_mut() {
-            *x = 9;
+            *x = 6;
         }
 
         info!(
