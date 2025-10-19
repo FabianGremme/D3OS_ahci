@@ -366,6 +366,7 @@ pub fn init() {
             ahci_controller.rebase_port(i);
         }
         ahci_controller.test_identify_all_ports();
+        ahci_controller.init_all_ports_as_block_devices();
 
         info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
@@ -380,8 +381,13 @@ pub fn init() {
 
         // hier wird in den Speicher geschrieben/ gelesen
 
-        ahci_controller.test_read(1, 1);
+        //ahci_controller.test_read(1, 1);
         ahci_controller.test_write(1, 1);
+
+
+        
+
+
     }
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
 }
@@ -1079,7 +1085,7 @@ impl AhciController {
         );
     }
 
-    unsafe fn test_read(&self, portnr: u32, arr_len: u32) {
+    unsafe fn test_read(&self, portnr: u32, arr_len: u32) ->Vec<u8>{
         if portnr == 0 {
             info!("Achtung es wird vom Bootimage gelesen!");
         }
@@ -1100,7 +1106,8 @@ impl AhciController {
         let mut region_ptr = single_region.start.start_address().as_u64() as *mut u8;
         let mut readable_array =
             Vec::from_raw_parts(region_ptr, read_bytes as usize, read_bytes as usize);
-        info!("das gelesene array ist: {:?}", readable_array);
+        //info!("das gelesene array ist: {:?}", readable_array);
+        readable_array
     }
 
     unsafe fn test_write(&self, portnr: u32, arr_len: u32) {
@@ -1237,6 +1244,53 @@ impl AhciController {
             }
         }
     }
+
+    // hier beginnen die Benchmarks
+
+    // first scenario of Benchmarking: read a lot of sectors in a sequence
+
+    pub unsafe fn benchmark_check_single_read(&self, sector_count: u32, correct_arr:Vec<u8>) -> isize{
+        // test, if the read amt of sectors is correct.
+        //times only during the reading process and returns the time in ms
+        // if the read sectors does not fit with the correct array, it returns -1
+
+        //start timer:
+        let start_time = sys_get_system_time();
+
+        let read_sectors = self.test_read(1, sector_count);
+
+        let end_time = sys_get_system_time();
+
+        let mut read_time = end_time - start_time;
+
+        //check if the read_sectors are correct
+
+        if read_sectors == correct_arr{
+            read_time
+        }else {
+            -1 as isize
+        }
+
+    }
+
+    pub unsafe fn benchmark_read(&self, sector_count: u32, repetitions: u32){
+        //repetitions should be a multiple of 10
+        // all benchmarks on hdd.img
+
+    }
+
+    pub unsafe fn benchmark_write(&self, sector_count: u32, repetitions: u32){
+        //repetitions should be a multiple of 10
+        // all benchmarks on hdd.img
+
+    }
+
+
+
+
+    //second scenario: read and write sectors at random spots
+
+
 }
 
 #[allow(warnings)]
@@ -1317,7 +1371,6 @@ impl BlockDevice for AHCIDrive {
     }
 
     fn sector_count(&self) -> u64 {
-        // schauen ob das passt
         self.info.lbaCapacity as u64
     }
 
