@@ -382,7 +382,8 @@ pub fn init() {
         // hier wird in den Speicher geschrieben/ gelesen
 
         //ahci_controller.test_read(1, 1);
-        ahci_controller.test_write(1, 1);
+        //ahci_controller.test_write(1, 1);
+        ahci_controller.benchmark_read(4000, 2);
 
 
         
@@ -693,7 +694,7 @@ impl AhciController {
         } else {
             frame_count = full_amt;
         }
-
+        info!("try to allocate {} fames", frame_count);
         let mut allocated = frames::alloc(frame_count as usize);
         let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
 
@@ -1245,8 +1246,14 @@ impl AhciController {
         }
     }
 
+
     // hier beginnen die Benchmarks
 
+
+
+
+    
+    // vielleicht die Device Info weitergeben?
     // first scenario of Benchmarking: read a lot of sectors in a sequence
 
     pub unsafe fn benchmark_check_single_read(&self, sector_count: u32, correct_arr:&Vec<u8>) -> isize{
