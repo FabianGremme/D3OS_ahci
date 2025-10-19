@@ -80,8 +80,8 @@ enum TransferMode {
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 struct AhciController {
-    hba_regs: *mut HBARegister,
-    ports_start: *mut HbaPort,
+    hba_regs: u32,
+    ports_start: u32,
 }
 
 #[allow(warnings)]
@@ -412,9 +412,10 @@ impl AhciController {
         //hier muss der gesamte ahci controller gemappt werden!!, nicht nur die adressen
         Self::map_general(bar_mem.0 as u64, bar_mem.1 as u64, "ahci");
 
-        let mut hba_regs = ahci_base_addr as *mut HBARegister;
+        let mut hba_regs = ahci_base_addr as u32;// *mut HBARegister;
+        let mut hba_regs_pointer = ahci_base_addr as *mut HBARegister;
 
-        let ports_start = hba_regs.offset(1) as *mut HbaPort;
+        let ports_start = hba_regs_pointer.offset(1) as u32;// *mut HbaPort;
 
         AhciController {
             hba_regs,
@@ -500,7 +501,7 @@ impl AhciController {
     pub unsafe fn check_ports_for_device(&self) {
         let amt_port = self.check_cap_nr_of_ports();
         for i in 0..amt_port - 1 {
-            let current_port = self.ports_start.offset(i.try_into().unwrap());
+            let current_port = (self.ports_start as * mut HbaPort).offset(i.try_into().unwrap());
             info!("teste Port mit der Nummer {}", i);
             if Self::check_port_usable(current_port) {
                 let signature = (*current_port).signature;
@@ -515,7 +516,7 @@ impl AhciController {
     pub unsafe fn test_identify_all_ports(&self) {
         let amt_port = self.check_cap_nr_of_ports();
         for i in 0..amt_port - 1 {
-            let current_port = self.ports_start.offset(i.try_into().unwrap());
+            let current_port = (self.ports_start as * mut HbaPort).offset(i.try_into().unwrap());
             info!("teste Port mit der Nummer {}", i);
             if Self::check_port_usable(current_port) {
                 Self::test_identify_device_on_port(&self, i);
@@ -541,7 +542,7 @@ impl AhciController {
     }
 
     pub unsafe fn check_ahci_mode_enabled(&self) {
-        let ghc = (*self.hba_regs).globalHostControl;
+        let ghc = (*(self.hba_regs as * mut HBARegister)).globalHostControl;
         let output = Self::general_bit_check(ghc, 31);
         if output {
             info!("der Controller läuft im ahci modus");
@@ -551,7 +552,7 @@ impl AhciController {
     }
 
     pub unsafe fn check_only_ahci(&self) {
-        let sam = (*self.hba_regs).hostCapabilities;
+        let sam = (*(self.hba_regs as * mut HBARegister)).hostCapabilities;
         let output = Self::general_bit_check(sam, 18);
         if output {
             info!("der Controller unterstützt nur ahci");
@@ -564,10 +565,10 @@ impl AhciController {
     pub unsafe fn check_bios_handoff(&self) {
         //check if the version is high enough
         info!("enter check bios handoff func");
-        let version = (*self.hba_regs).version;
-        if (*self.hba_regs).version >= 0x10200 {
+        let version = (*(self.hba_regs as * mut HBARegister)).version;
+        if version >= 0x10200 {
             info!("Version ist hoch genug");
-            let ext_cap = (*self.hba_regs).extendedHostCapabilities;
+            let ext_cap = (*(self.hba_regs as * mut HBARegister)).extendedHostCapabilities;
             info!("ext_cap sind {}", ext_cap);
             if ext_cap & 1 != 0 {
                 info!("BIOS Handoff wird vom Controller unterstützt")
@@ -575,14 +576,14 @@ impl AhciController {
         } else {
             info!("Version ist nicht hoch genug")
         }
-        let handoff = (*self.hba_regs).biosHandoffControl;
+        let handoff = (*(self.hba_regs as * mut HBARegister)).biosHandoffControl;
         if handoff == 0 {
             info!("the bios has no control over the hba, so the os can use it");
         }
     }
 
     pub unsafe fn check_64_bit_addr_supported(&self) {
-        let cap = (*self.hba_regs).hostCapabilities;
+        let cap = (*(self.hba_regs as * mut HBARegister)).hostCapabilities;
         let output = Self::general_bit_check(cap, 31);
         if output {
             info!("es werden 64 bit adressen unterstützt");
@@ -592,7 +593,7 @@ impl AhciController {
     }
 
     pub unsafe fn check_cap_nr_of_ports(&self) -> u32 {
-        let cap = (*self.hba_regs).hostCapabilities;
+        let cap = (*(self.hba_regs as * mut HBARegister)).hostCapabilities;
         let nr_of_ports = Self::general_bitlen_reader(cap, 0, 5);
         info!(
             "laut capabilities werden {} Ports unterstützt.",
@@ -602,7 +603,7 @@ impl AhciController {
     }
 
     pub unsafe fn check_nr_of_command_slots(&self) -> u32 {
-        let cap = (*self.hba_regs).hostCapabilities;
+        let cap = (*(self.hba_regs as * mut HBARegister)).hostCapabilities;
         let nr_of_cmds = Self::general_bitlen_reader(cap, 8, 5);
         info!(
             "laut capabilities werden {} Command slots unterstützt.",
@@ -626,7 +627,7 @@ impl AhciController {
     }
 
     pub unsafe fn rebase_port(&self, port_nr: u32) {
-        let port = self.ports_start.offset(port_nr.try_into().unwrap());
+        let port = (self.ports_start as * mut HbaPort).offset(port_nr.try_into().unwrap());
         info!("port nr {} hat die addr {:?}", port_nr, port);
         if Self::check_port_usable(port) {
             info!("portnr {} bekommt den rebase", port_nr);
@@ -721,7 +722,7 @@ impl AhciController {
             reserved2: 0,
         };
 
-        let port = self.ports_start.offset(portnr.try_into().unwrap());
+        let port = (self.ports_start as * mut HbaPort).offset(portnr.try_into().unwrap());
         if (*port).signature == 257 {
             //port signature if it is an ata port
             host_to_device_fis.command = ATA_IDENTIFY; //identification code for ata
@@ -754,7 +755,7 @@ impl AhciController {
         mut command_fis: [u8; 64],
         atapi_command: [u8; 16],
     ) {
-        let mut port = self.ports_start.offset(portnr.try_into().unwrap());
+        let mut port = (self.ports_start as * mut HbaPort).offset(portnr.try_into().unwrap());
         let mut command_list_addr = (*port).commandListBaseAddress as u64
             | (((*port).commandListBaseAddressUpper as u64) << 32);
         unsafe {
@@ -894,7 +895,7 @@ impl AhciController {
         mut command_fis: [u8; 64],
         atapi_command: [u8; 16],
     ) -> bool {
-        let mut port = self.ports_start.offset(portnr.try_into().unwrap());
+        let mut port = (self.ports_start as * mut HbaPort).offset(portnr.try_into().unwrap());
         info!("port in write to device ist {:?}", port);
         let mut command_list_addr = (*port).commandListBaseAddress as u64
             | (((*port).commandListBaseAddressUpper as u64) << 32);
@@ -1228,7 +1229,7 @@ impl AhciController {
     pub unsafe fn init_all_ports_as_block_devices(&self) {
         let amt_port = self.check_cap_nr_of_ports();
         for i in 0..amt_port - 1 {
-            let current_port = self.ports_start.offset(i.try_into().unwrap());
+            let current_port = (self.ports_start as * mut HbaPort).offset(i.try_into().unwrap());
             info!("init Port {} as block device", i);
             if Self::check_port_usable(current_port) {
                 let ahci_drive = Arc::new(AHCIDrive::new(Arc::new(self.clone()), i));
