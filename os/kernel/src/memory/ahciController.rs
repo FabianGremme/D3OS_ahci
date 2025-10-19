@@ -1249,7 +1249,7 @@ impl AhciController {
 
     // first scenario of Benchmarking: read a lot of sectors in a sequence
 
-    pub unsafe fn benchmark_check_single_read(&self, sector_count: u32, correct_arr:Vec<u8>) -> isize{
+    pub unsafe fn benchmark_check_single_read(&self, sector_count: u32, correct_arr:&Vec<u8>) -> isize{
         // test, if the read amt of sectors is correct.
         //times only during the reading process and returns the time in ms
         // if the read sectors does not fit with the correct array, it returns -1
@@ -1265,7 +1265,7 @@ impl AhciController {
 
         //check if the read_sectors are correct
 
-        if read_sectors == correct_arr{
+        if read_sectors == *correct_arr{
             read_time
         }else {
             -1 as isize
@@ -1276,6 +1276,20 @@ impl AhciController {
     pub unsafe fn benchmark_read(&self, sector_count: u32, repetitions: u32){
         //repetitions should be a multiple of 10
         // all benchmarks on hdd.img
+        info!("start read benchmark, with {} sectors in a sequence and {} repetitions", sector_count, repetitions);
+        let correct_arr = self.test_read(1, sector_count);
+        let mut full_time_ms = 0;
+        let mut amt_success = 0;
+
+        for i in 0..repetitions{
+            let single_result = self.benchmark_check_single_read(sector_count, &correct_arr);
+            if single_result != -1{
+                full_time_ms += single_result;
+                amt_success += 1;
+            }
+        }
+        info!("finished read benchmark, with {} sectors in a sequence and {} repetitions", sector_count, repetitions);
+        info!("managed to read {} of {} times successfully with a complete time of {} ms", amt_success, repetitions, full_time_ms);        
 
     }
 
