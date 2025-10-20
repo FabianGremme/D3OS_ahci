@@ -384,7 +384,7 @@ pub fn init() {
         //ahci_controller.test_read(1, 1);
         //ahci_controller.test_write(1, 1);
         // bei zu hoher Sektorgroesse macht der Speicher nicht mehr mit...
-        ahci_controller.benchmark_read(10, 60);
+        ahci_controller.benchmark_read(1000, 100);
 
 
         
@@ -1283,7 +1283,7 @@ impl AhciController {
     // vielleicht die Device Info weitergeben?
     // first scenario of Benchmarking: read a lot of sectors in a sequence
 
-    pub unsafe fn benchmark_check_single_read(&self, sector_count: u32, correct_arr:&Vec<u8>, id_device: DeviceInfo) -> isize{
+    pub unsafe fn benchmark_check_single_read(&self, sector_count: u32, correct_arr:&[u8], id_device: DeviceInfo) -> isize{
         // test, if the read amt of sectors is correct.
         //times only during the reading process and returns the time in ms
         // if the read sectors does not fit with the correct array, it returns -1
@@ -1300,13 +1300,12 @@ impl AhciController {
 
         let read_bytes = SEKTORGROESSE * sector_count;
         let mut region_ptr = read_sectors.start.start_address().as_u64() as *mut u8;
-        let mut array =
-            Vec::from_raw_parts(region_ptr, read_bytes as usize, read_bytes as usize);
+        let array = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
 
 
         //check if the read_sectors are correct
 
-        if array == *correct_arr{
+        if array == correct_arr{
             //irgendwie wieder die read sectors herausbekommen und dann mit free arbeiten
             frames::free(read_sectors);
             read_time
@@ -1325,14 +1324,13 @@ impl AhciController {
         let correct_arr = self.test_read(1, sector_count, id_device);
         let read_bytes = SEKTORGROESSE * sector_count;
         let mut region_ptr = correct_arr.start.start_address().as_u64() as *mut u8;
-        let mut array =
-            Vec::from_raw_parts(region_ptr, read_bytes as usize, read_bytes as usize);
+        let array = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
 
         let mut full_time_ms = 0;
         let mut amt_success = 0;
 
         for i in 0..repetitions{
-            let single_result = self.benchmark_check_single_read(sector_count, &array, id_device);
+            let single_result = self.benchmark_check_single_read(sector_count, array, id_device);
             if single_result != -1{
                 full_time_ms += single_result;
                 amt_success += 1;
@@ -1348,13 +1346,14 @@ impl AhciController {
         let id_device = self.identify_device(1);
         let read_bytes: u32 = SEKTORGROESSE * sector_count;
         let write_region = AhciController::allocate_heap_region(read_bytes);
-        //wandel den buffer zum vektor um
+        //wandel den buffer zum slice um
         let mut write_region_ptr = write_region.start.start_address().as_u64() as *mut u8;
-        let mut correct_vec =
-            Vec::from_raw_parts(write_region_ptr, read_bytes as usize, read_bytes as usize);
-        //schreibe in den Vector:
-        for x in correct_vec.iter_mut() {
-            *x = nr_to_write;
+        let mut correct =
+            core::slice::from_raw_parts_mut(write_region_ptr, read_bytes as usize);
+        //schreibe in die slice:
+        correct[1] = nr_to_write;
+        for i in 0..correct.len() {
+            correct[i] = nr_to_write;
         }
 
         frames::free(write_region);
