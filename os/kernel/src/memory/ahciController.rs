@@ -386,7 +386,7 @@ pub fn init() {
         
         // es schafft 40000 zu lesen, aber bei 10000 nicht? je 10 reps
         // bei 20 reps ist die shell nicht mehr da???
-        ahci_controller.benchmark_read(400, 100);
+        ahci_controller.benchmark_read(400, 10);
         
     }
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
