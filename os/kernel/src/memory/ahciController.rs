@@ -747,6 +747,8 @@ impl AhciController {
         self.read_from_device(portnr, dma_reg_addr, SEKTORGROESSE, command_fis, atapi_cmd);
 
         let mut output = dma_reg_addr as *mut DeviceInfo;
+        info!("free in id device");
+        frames::free(dma_reg);
         unsafe { output.read() }
     }
 
@@ -1144,6 +1146,10 @@ impl AhciController {
         let mut ctrl_readable_array =
             core::slice::from_raw_parts_mut(ctrl_region_ptr, read_bytes as usize);
         info!("das gelesene kontrollarray ist: {:?}", ctrl_readable_array);
+        info!("first free in test_write_debug");
+        frames::free(ctrl_single_region);
+        info!("second free in test_write_debug");
+        frames::free(write_region);
     }
 
     unsafe fn test_write(
@@ -1180,6 +1186,8 @@ impl AhciController {
         );
         let end_time = sys_get_system_time();
         let mut read_time = end_time - start_time;
+        info!("free in test_write");
+        frames::free(write_region);
         read_time
     }
 
@@ -1215,7 +1223,8 @@ impl AhciController {
         ptr::copy_nonoverlapping(region_ptr, buffer.as_mut_ptr(), read_bytes as usize);
 
         // hier müsste noch ein free gemacht werden
-        //frames::free(region_buffer);
+        info!("free in read");
+        frames::free(region_buffer);
 
         return count;
     }
@@ -1255,7 +1264,8 @@ impl AhciController {
         }
 
         //gib den Speicher wieder frei
-        //frames::free(region);
+        info!("free in write");
+        frames::free(region);
 
         return count;
     }
@@ -1301,12 +1311,24 @@ impl AhciController {
         let array = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
 
         //check if the read_sectors are correct
+        info!("read sectors sind: {:?}", array.len());
+        let mut equal = true;
+        for i in 0..array.len(){
+            if array[i] != correct_arr[i]{
+                info!("array an stelle {} ist {}, und korrect wäre {}", i, array[i], correct_arr[i]);
+                equal = false;
+                break;
+                // problem: ab 860486 wird nur 255 ausgelesen. was stimmt da mit der Platte nicht??
+            }
+        }
 
-        if array == correct_arr {
+        if equal {
             //irgendwie wieder die read sectors herausbekommen und dann mit free arbeiten
+            info!("free in benchmark_check_single_read, in if yes");
             frames::free(read_sectors);
             read_time
         } else {
+            info!("free in benchmark_check_single_read, in if no");
             frames::free(read_sectors);
             -1 as isize
         }
@@ -1335,7 +1357,8 @@ impl AhciController {
                 amt_success += 1;
             }
         }
-        frames::free(correct_arr);
+        info!("free in benchmark_read, könnte das Problem sein");
+        //frames::free(correct_arr);
         info!(
             "finished read benchmark, with {} sectors in a sequence and {} repetitions",
             sector_count, repetitions
@@ -1357,8 +1380,10 @@ impl AhciController {
         for i in 0..correct.len() {
             correct[i] = nr_to_write;
         }
-
+        info!("free in benchmark_one_write");
         frames::free(write_region);
+
+        todo!("hier muss noch weiter gearbeitet werden!!!")
     }
 
     pub unsafe fn benchmark_write(&self, sector_count: u32, repetitions: u32) {
