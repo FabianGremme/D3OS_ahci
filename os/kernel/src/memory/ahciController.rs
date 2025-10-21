@@ -384,7 +384,7 @@ pub fn init() {
         //ahci_controller.test_read(1, 1);
         //ahci_controller.test_write(1, 1);
         // bei zu hoher Sektorgroesse macht der Speicher nicht mehr mit...
-        ahci_controller.benchmark_read(1000, 100);
+        ahci_controller.benchmark_read(9000, 10);
     }
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
 }
@@ -981,7 +981,7 @@ impl AhciController {
         portnr: u32,
         deviceInfo: &DeviceInfo,
         mode: TransferMode,
-        mut buffer: PhysFrameRange,
+        mut buffer_addr: u64,
         start_sector: u64,
         sector_count: u32,
     ) -> bool {
@@ -1023,8 +1023,6 @@ impl AhciController {
                 ptr::copy_nonoverlapping(src, ptr, size_of::<FisRegisterHostToDevice>());
             }
 
-            // der DMA Buffer existiert schon und muss demnach nicht verändert werden
-            let buffer_addr = buffer.start.start_address().as_u64();
 
             self.read_from_device(
                 portnr,
@@ -1046,8 +1044,6 @@ impl AhciController {
 
             let buffer_size = sector_count * (deviceInfo.bytesPerSector as u32);
 
-            // der DMA Buffer existiert schon und muss demnach nicht verändert werden
-            let buffer_addr = buffer.start.start_address().as_u64();
 
             //hier wird in den Buffer geschrieben
 
@@ -1092,11 +1088,12 @@ impl AhciController {
 
         let read_bytes: u32 = SEKTORGROESSE * arr_len;
         let single_region = AhciController::allocate_heap_region(read_bytes);
+        let single_region_addr = single_region.start.start_address().as_u64();
         self.performAtaIO(
             portnr,
             &id_device,
             TransferMode::READ,
-            single_region,
+            single_region_addr,
             0,
             arr_len,
         );
@@ -1111,8 +1108,9 @@ impl AhciController {
         let id_device = self.identify_device(portnr);
         //erzeuge einen neuen buffer
         let write_region = AhciController::allocate_heap_region(read_bytes);
+        let write_region_addr =write_region.start.start_address().as_u64();
         //wandel den buffer zum slice um
-        let mut write_region_ptr = write_region.start.start_address().as_u64() as *mut u8;
+        let mut write_region_ptr = write_region_addr as *mut u8;
         let mut write_sl = core::slice::from_raw_parts_mut(write_region_ptr, read_bytes as usize);
         //schreibe in den slice:
         for i in 0..write_sl.len() {
@@ -1128,17 +1126,18 @@ impl AhciController {
             portnr,
             &id_device,
             TransferMode::WRITE,
-            write_region,
+            write_region_addr,
             0,
             arr_len,
         );
         info!("Kontrollwert wird geschrieben");
         let ctrl_single_region = AhciController::allocate_heap_region(read_bytes);
+        let ctrl_single_region_addr = ctrl_single_region.start.start_address().as_u64();
         self.performAtaIO(
             portnr,
             &id_device,
             TransferMode::READ,
-            ctrl_single_region,
+            ctrl_single_region_addr,
             0,
             arr_len,
         );
@@ -1165,8 +1164,9 @@ impl AhciController {
         let read_bytes: u32 = SEKTORGROESSE * arr_len;
         //erzeuge einen neuen buffer
         let write_region = AhciController::allocate_heap_region(read_bytes);
-        //wandel den buffer zum vektor um
-        let mut write_region_ptr = write_region.start.start_address().as_u64() as *mut u8;
+        let write_region_addr =write_region.start.start_address().as_u64();
+        //wandel den buffer zum slice um
+        let mut write_region_ptr = write_region_addr as *mut u8;
         let mut write_sl =
             core::slice::from_raw_parts_mut(write_region_ptr, read_bytes as usize);
         //schreibe in den slice:
@@ -1180,7 +1180,7 @@ impl AhciController {
             portnr,
             &id_device,
             TransferMode::WRITE,
-            write_region,
+            write_region_addr,
             0,
             arr_len,
         );
@@ -1208,11 +1208,12 @@ impl AhciController {
 
         let read_bytes: u32 = SEKTORGROESSE * count as u32;
         let region_buffer = AhciController::allocate_heap_region(read_bytes);
+        let region_buffer_addr = region_buffer.start.start_address().as_u64();
         self.performAtaIO(
             portnr,
             &id_device,
             TransferMode::READ,
-            region_buffer,
+            region_buffer_addr,
             sector,
             count as u32,
         );
@@ -1245,9 +1246,10 @@ impl AhciController {
 
         //erstelle eine PhysFrameRange für ataIO
         let region = AhciController::allocate_heap_region(read_bytes);
+        let region_addr = region.start.start_address().as_u64();
 
         //kopiere den Buffer in die Region
-        let mut region_ptr = region.start.start_address().as_u64() as *mut u8;
+        let mut region_ptr = region_addr as *mut u8;
         ptr::copy_nonoverlapping(buffer.as_ptr(), region_ptr, read_bytes as usize);
 
         // reiche alles an ataIO weiter
@@ -1255,7 +1257,7 @@ impl AhciController {
             portnr,
             &id_device,
             TransferMode::WRITE,
-            region,
+            region_addr,
             sector,
             count as u32,
         );
