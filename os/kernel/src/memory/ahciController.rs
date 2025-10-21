@@ -847,11 +847,11 @@ impl AhciController {
         // alloc frame nötig
         // dann addr weitergeben
         //später ggf mehrere frames nötig
-        let mut allocated = frames::alloc(1);
+        let mut allocated = frames::alloc(descriptor_count as usize);
         let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
 
         //schreibe 0 in die ganzen Felder
-        pointer.write_bytes(0, 4096);
+        pointer.write_bytes(0, 4096 * descriptor_count as usize);
         let output = pointer as *mut HbaCommandTable;
 
         if descriptor_count == 1 {
