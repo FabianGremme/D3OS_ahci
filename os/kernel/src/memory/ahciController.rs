@@ -387,18 +387,9 @@ pub fn init() {
         //ahci_controller.test_read(1, 1);
         //ahci_controller.test_write(1, 1);
 
-        let mut small_rng = SmallRng::seed_from_u64(5);
-        for i in 1..100 {
-            let rand_pos = small_rng.next_u64();
-            let max_amt_of_sectors = 131071 as u64;
-            let fitting_pos = max_amt_of_sectors & rand_pos;
 
-            info!(
-                "die random zahl ist {}, und sollte kleiner gleich {} sein",
-                fitting_pos, max_amt_of_sectors
-            );
-        }
-
+        //läuft beides:
+        //ahci_controller.benchmark_random_read(1000);
         //ahci_controller.benchmark_read(100000, 2);
     }
 }
@@ -1286,14 +1277,11 @@ impl AhciController {
         let mut read_time = end_time - start_time;
 
         //check if the read_sectors are correct
-        info!("read sectors sind: {:?}", array.len());
+        //info!("read sectors sind: {:?}", array.len());
         let mut equal = true;
         for i in 0..array.len() {
             if array[i] != correct_arr[i] {
-                info!(
-                    "array an stelle {} ist {}, und korrect wäre {}",
-                    i, array[i], correct_arr[i]
-                );
+                //info!("array an stelle {} ist {}, und korrect wäre {}",i, array[i], correct_arr[i]);
                 equal = false;
                 break;
                 // problem: ab 860486 wird nur 255 ausgelesen. was stimmt da mit der Platte nicht??
@@ -1302,10 +1290,10 @@ impl AhciController {
 
         if equal {
             //irgendwie wieder die read sectors herausbekommen und dann mit free arbeiten
-            info!("in benchmark_check_single_read, in if yes");
+            //info!("in benchmark_check_single_read, in if yes");
             read_time
         } else {
-            info!("in benchmark_check_single_read, in if no");
+            //info!("in benchmark_check_single_read, in if no");
             -1 as isize
         }
     }
@@ -1317,7 +1305,7 @@ impl AhciController {
     ) -> isize {
         //times only during the reading process and returns the time in ms
         //the start sector is random for that:
-
+        //info!("the position is {}", position);
         //start timer:
         let start_time = sys_get_system_time();
 
@@ -1380,10 +1368,8 @@ impl AhciController {
             let max_amt_of_sectors = (id_device.lbaCapacity - 1) as u64;
             let fitting_pos = max_amt_of_sectors & rand_pos;
             //read one sector at the random position
-            let single_result = self.benchmark_random_single_read(rand_pos, id_device);
-            if single_result != -1 {
-                full_time_ms += single_result;
-            }
+            let single_result = self.benchmark_random_single_read(fitting_pos, id_device);
+            full_time_ms += single_result;
         }
         info!(
             "finished random read benchmark, with one sector at a random position and {} repetitions",
