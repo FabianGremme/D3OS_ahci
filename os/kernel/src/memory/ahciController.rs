@@ -386,7 +386,7 @@ pub fn init() {
         
         // es schafft 40000 zu lesen, aber bei 10000 nicht? je 10 reps
         // bei 20 reps ist die shell nicht mehr da???
-        ahci_controller.benchmark_read(100, 10);
+        ahci_controller.benchmark_read(2000, 40);
         
     }
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
@@ -751,7 +751,7 @@ impl AhciController {
 
         let mut output = dma_reg_addr as *mut DeviceInfo;
         info!("free in id device");
-        frames::free(dma_reg);
+        //frames::free(dma_reg);
         unsafe { output.read() }
     }
 
@@ -785,7 +785,7 @@ impl AhciController {
             cmd_table.commandFis = command_fis.clone();
             cmd_table.atapiCommand = atapi_command.clone();
 
-            info!("byte count in write to device ist {}", byte_count);
+            info!("byte count in read to device ist {}", byte_count);
             let mut physical_region_descriptor_table_length;
             let full_amt = byte_count / 4096;
             let rest = byte_count % 4096;
@@ -850,10 +850,12 @@ impl AhciController {
         // alloc frame nötig
         // dann addr weitergeben
         //später ggf mehrere frames nötig
-        let mut allocated = frames::alloc(descriptor_count as usize);
+        let mut allocated = frames::alloc(1);
         let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
 
         //schreibe 0 in die ganzen Felder
+
+        //warum kommt hier ein Fehler, wenn das nicht drin ist????
         pointer.write_bytes(0, 4096 * descriptor_count as usize);
         let output = pointer as *mut HbaCommandTable;
 
