@@ -387,16 +387,17 @@ pub fn init() {
         //ahci_controller.test_read(1, 1);
         //ahci_controller.test_write(1, 1);
 
-        //läuft beides:
-        ahci_controller.benchmark_random_read(1000, 1);
-        ahci_controller.benchmark_read(100000, 2, 1);
-        ahci_controller.benchmark_write(10, 1, 1);
-        ahci_controller.benchmark_random_write(100, 1);
+        //läuft:
+        //ahci_controller.benchmark_random_read(1000, 1);
+        //ahci_controller.benchmark_read(100000, 2, 1);
+        ahci_controller.benchmark_write(1000, 10, 1);
+        //ahci_controller.benchmark_random_write(100, 1);
     }
 }
 
 #[allow(warnings)]
 impl AhciController {
+
     fn get_cmd_table_header(start: *mut u8) -> *mut HbaCommandTableHeader {
         unsafe { start as *mut HbaCommandTableHeader }
     }
@@ -1191,7 +1192,7 @@ impl AhciController {
         &self,
         portnr: u32,
         start_sector: u64,
-        arr_len: u32,
+        sector_count: u32,
         id_device: DeviceInfo,
     ) -> &mut [u8] {
         if portnr == 0 {
@@ -1199,7 +1200,7 @@ impl AhciController {
         }
         let sector_size = id_device.bytesPerSector;
 
-        let read_bytes: u32 = SEKTORGROESSE * arr_len;
+        let read_bytes: u32 = SEKTORGROESSE * sector_count;
         let single_region = AhciController::allocate_heap_region(read_bytes);
         let single_region_addr = single_region.start.start_address().as_u64();
         self.performAtaIO(
@@ -1208,7 +1209,7 @@ impl AhciController {
             TransferMode::READ,
             single_region_addr,
             start_sector,
-            arr_len,
+            sector_count,
         );
         let mut region_ptr = single_region.start.start_address().as_u64() as *mut u8;
         let array = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
@@ -1227,13 +1228,12 @@ impl AhciController {
         if portnr == 0 {
             info!("Achtung es wird ins Bootimage geschrieben!");
         }
-        let read_bytes: u32 = SEKTORGROESSE * sector_count;
-        //erzeuge einen neuen buffer
-        let write_region = AhciController::allocate_heap_region(read_bytes);
+        let write_bytes: u32 = SEKTORGROESSE * sector_count;
+        let write_region = AhciController::allocate_heap_region(write_bytes);
         let write_region_addr = write_region.start.start_address().as_u64();
         //wandel den buffer zum slice um
         let mut write_region_ptr = write_region_addr as *mut u8;
-        let mut write_sl = core::slice::from_raw_parts_mut(write_region_ptr, read_bytes as usize);
+        let mut write_sl = core::slice::from_raw_parts_mut(write_region_ptr, write_bytes as usize);
         //schreibe in den slice:
         for i in 0..write_sl.len() {
             write_sl[i] = nr_to_write;
@@ -1241,7 +1241,7 @@ impl AhciController {
         //schreibe das array an die Stelle in den Speicher:
         //starte den Timer
         let start_time = sys_get_system_time();
-        self.performAtaIO(
+        let help = self.performAtaIO(
             portnr,
             &id_device,
             TransferMode::WRITE,
@@ -1249,6 +1249,7 @@ impl AhciController {
             start_sector,
             sector_count,
         );
+        info!("help ist {}", help);
         let end_time = sys_get_system_time();
         let mut write_time = end_time - start_time;
         info!("free in test_write");
@@ -1395,21 +1396,23 @@ impl AhciController {
         let work_time = self.test_write(port_nr, 0, sector_count, 5, id_device);
         // test if i read the same sectors, that all of them have the same number
         let read = self.test_read(port_nr, 0, sector_count, id_device);
-        info!("die länge des arr ist {}", read.len());
+        //info!("die länge des arr ist {}", read.len());
         //info!("das array ist: {:?}", read);
         let mut count = 0;
+        let mut count_bad = 0;
         let mut success = true;
         for i in 0..read.len() {
             if read[i] != 5 {
-                info!("error, das passt nicht: i ist {}, sollte {} sein", i, read[i]);
+                info!("error, das passt nicht: i ist {}, sollte {} sein", i, read[i]);       
+                //todo: hier die 16 Byte anschauen
                 success = false;
-                //break;
+                count_bad += 1;
             }else{
                 count += 1;
             }
             
         }
-        info!("count ist: {}", count);
+        info!("count ist: {} und bad count ist: {}", count, count_bad);
         // reset the sectors to another value
         self.test_write(port_nr, 0, sector_count, 8, id_device);
         if success { work_time } else { -1 }
