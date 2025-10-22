@@ -388,10 +388,10 @@ pub fn init() {
         //ahci_controller.test_write(1, 1);
 
         //läuft beides:
-        ahci_controller.benchmark_random_read(1000);
-        ahci_controller.benchmark_read(100000, 2);
-        ahci_controller.benchmark_write(10, 1);
-        ahci_controller.benchmark_random_write(100);
+        ahci_controller.benchmark_random_read(1000, 1);
+        ahci_controller.benchmark_read(100000, 2, 1);
+        ahci_controller.benchmark_write(10, 1, 1);
+        ahci_controller.benchmark_random_write(100, 1);
     }
 }
 
@@ -1263,6 +1263,7 @@ impl AhciController {
         sector_count: u32,
         correct_arr: &[u8],
         id_device: DeviceInfo,
+        port_nr: u32
     ) -> isize {
         // test, if the read amt of sectors is correct.
         //times only during the reading process and returns the time in ms
@@ -1271,7 +1272,7 @@ impl AhciController {
         //start timer:
         let start_time = sys_get_system_time();
 
-        let array = self.test_read(1, 0, sector_count, id_device);
+        let array = self.test_read(port_nr, 0, sector_count, id_device);
 
         let end_time = sys_get_system_time();
 
@@ -1303,6 +1304,7 @@ impl AhciController {
         &self,
         position: u64,
         id_device: DeviceInfo,
+        port_nr: u32
     ) -> isize {
         //times only during the reading process and returns the time in ms
         //the start sector is random for that:
@@ -1310,7 +1312,7 @@ impl AhciController {
         //start timer:
         let start_time = sys_get_system_time();
 
-        let array = self.test_read(1, position, 1, id_device);
+        let array = self.test_read(port_nr, position, 1, id_device);
 
         let end_time = sys_get_system_time();
 
@@ -1318,22 +1320,22 @@ impl AhciController {
         (end_time - start_time) as isize
     }
 
-    pub unsafe fn benchmark_read(&self, sector_count: u32, repetitions: u32) {
+    pub unsafe fn benchmark_read(&self, sector_count: u32, repetitions: u32, port_nr: u32) {
         //repetitions should be a multiple of 10
         // all benchmarks on hdd.img
         info!(
             "start read benchmark, with {} sectors in a sequence and {} repetitions",
             sector_count, repetitions
         );
-        let id_device = self.identify_device(1);
-        let correct_arr = self.test_read(1, 0, sector_count, id_device);
+        let id_device = self.identify_device(port_nr);
+        let correct_arr = self.test_read(port_nr, 0, sector_count, id_device);
 
         let mut full_time_ms = 0;
         let mut amt_success = 0;
 
         for i in 0..repetitions {
             let single_result =
-                self.benchmark_check_single_read(sector_count, &correct_arr, id_device);
+                self.benchmark_check_single_read(sector_count, &correct_arr, id_device, port_nr);
             if single_result != -1 {
                 full_time_ms += single_result;
                 amt_success += 1;
@@ -1349,14 +1351,14 @@ impl AhciController {
         );
     }
 
-    pub unsafe fn benchmark_random_read(&self, repetitions: u32) {
+    pub unsafe fn benchmark_random_read(&self, repetitions: u32, port_nr: u32) {
         //repetitions should be a multiple of 10
         // all benchmarks on hdd.img
         info!(
             "start random read benchmark, with one sector at a random position and {} repetitions",
             repetitions
         );
-        let id_device = self.identify_device(1);
+        let id_device = self.identify_device(port_nr);
         let mut full_time_ms = 0;
 
         //generate the random nr_generator using a fixed seed
@@ -1369,7 +1371,7 @@ impl AhciController {
             let max_amt_of_sectors = (id_device.lbaCapacity - 1) as u64;
             let fitting_pos = max_amt_of_sectors & rand_pos;
             //read one sector at the random position
-            let single_result = self.benchmark_random_single_read(fitting_pos, id_device);
+            let single_result = self.benchmark_random_single_read(fitting_pos, id_device, port_nr);
             full_time_ms += single_result;
         }
         info!(
@@ -1388,10 +1390,11 @@ impl AhciController {
         &self,
         sector_count: u32,
         id_device: DeviceInfo,
+        port_nr: u32
     ) -> isize {
-        let work_time = self.test_write(1, 0, sector_count, 5, id_device);
+        let work_time = self.test_write(port_nr, 0, sector_count, 5, id_device);
         // test if i read the same sectors, that all of them have the same number
-        let read = self.test_read(1, 0, sector_count, id_device);
+        let read = self.test_read(port_nr, 0, sector_count, id_device);
         info!("die länge des arr ist {}", read.len());
         //info!("das array ist: {:?}", read);
         let mut count = 0;
@@ -1408,29 +1411,29 @@ impl AhciController {
         }
         info!("count ist: {}", count);
         // reset the sectors to another value
-        self.test_write(1, 0, sector_count, 8, id_device);
+        self.test_write(port_nr, 0, sector_count, 8, id_device);
         if success { work_time } else { -1 }
     }
 
-    pub unsafe fn benchmark_random_single_write(&self, start_sector: u64, id_device: DeviceInfo) ->  isize{
-        let work_time = self.test_write(1, start_sector, 1, 5, id_device);        
+    pub unsafe fn benchmark_random_single_write(&self, start_sector: u64, id_device: DeviceInfo, port_nr: u32) ->  isize{
+        let work_time = self.test_write(port_nr, start_sector, 1, 5, id_device);        
         // reset the sectors to another value
-        self.test_write(1, start_sector, 1, 8, id_device);
+        self.test_write(port_nr, start_sector, 1, 8, id_device);
         work_time
     }
 
-    pub unsafe fn benchmark_write(&self, sector_count: u32, repetitions: u32) {
+    pub unsafe fn benchmark_write(&self, sector_count: u32, repetitions: u32, port_nr: u32) {
         // always start at the first sector on the hdd.img
         info!(
             "start write benchmark, with {} sectors in a sequence and {} repetitions",
             sector_count, repetitions
         );
-        let id_device = self.identify_device(1);
+        let id_device = self.identify_device(port_nr);
         let mut full_time_ms = 0;
         let mut amt_success = 0;
 
         for i in 0..repetitions {
-            let single_result = self.benchmark_check_single_write(sector_count, id_device);
+            let single_result = self.benchmark_check_single_write(sector_count, id_device, port_nr);
             if single_result != -1 {
                 full_time_ms += single_result;
                 amt_success += 1;
@@ -1446,14 +1449,14 @@ impl AhciController {
         );
     }
 
-    pub unsafe fn benchmark_random_write(&self, repetitions: u32) {
+    pub unsafe fn benchmark_random_write(&self, repetitions: u32, port_nr: u32) {
         //repetitions should be a multiple of 10
         // all benchmarks on hdd.img
         info!(
             "start random read benchmark, with one sector at a random position and {} repetitions",
             repetitions
         );
-        let id_device = self.identify_device(1);
+        let id_device = self.identify_device(port_nr);
         let mut full_time_ms = 0;
 
         //generate the random nr_generator using a fixed seed
@@ -1466,7 +1469,7 @@ impl AhciController {
             let max_amt_of_sectors = (id_device.lbaCapacity - 1) as u64;
             let fitting_pos = max_amt_of_sectors & rand_pos;
             //read one sector at the random position
-            let single_result = self.benchmark_random_single_write(fitting_pos, id_device);
+            let single_result = self.benchmark_random_single_write(fitting_pos, id_device, port_nr);
             full_time_ms += single_result;
         }
         info!(
