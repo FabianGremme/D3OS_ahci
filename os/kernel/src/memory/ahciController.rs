@@ -386,7 +386,7 @@ pub fn init() {
         
         // es schafft 40000 zu lesen, aber bei 10000 nicht? je 10 reps
         // bei 20 reps ist die shell nicht mehr da???
-        //ahci_controller.benchmark_read(400, 10);
+        ahci_controller.benchmark_read(100, 10);
         
     }
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
@@ -523,7 +523,7 @@ impl AhciController {
         let amt_port = self.check_cap_nr_of_ports();
         for i in 0..amt_port - 1 {
             let current_port = (self.ports_start as *mut HbaPort).offset(i.try_into().unwrap());
-            info!("teste Port mit der Nummer {}", i);
+            info!("teste id Port mit der Nummer {}", i);
             if Self::check_port_usable(current_port) {
                 Self::test_identify_device_on_port(&self, i);
             }
@@ -687,13 +687,13 @@ impl AhciController {
         let mut frame_count;
         let full_amt = size / 4096;
         let rest = size % 4096;
-        info!("full amt is {} and rest ist {}", full_amt, rest);
+        //info!("full amt is {} and rest ist {}", full_amt, rest);
         if rest != 0 {
             frame_count = full_amt + 1;
         } else {
             frame_count = full_amt;
         }
-        info!("try to allocate {} fames", frame_count);
+        //info!("try to allocate {} fames", frame_count);
         let mut allocated = frames::alloc(frame_count as usize);
         let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
 
@@ -988,8 +988,11 @@ impl AhciController {
         start_sector: u64,
         sector_count: u32,
     ) -> bool {
-        if start_sector + (sector_count as u64) > deviceInfo.lbaCapacity.try_into().unwrap() {
+        let max_capacity = deviceInfo.lbaCapacity.try_into().unwrap();
+        if start_sector + (sector_count as u64) > max_capacity {
             info!("ERR: AHCI trys to read/write out of bounds!");
+            info!("start sector ist {}, und sector count ist {}", start_sector, sector_count);
+            info!("lba capacity ist:{}", max_capacity);
             return false;
         }
 
