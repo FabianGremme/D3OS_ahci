@@ -19,6 +19,9 @@ use core::ptr;
 use core::ptr::{addr_of_mut, null};
 use log::info;
 use pci_types::{BaseClass, EndpointHeader, SubClass};
+use rand::RngCore;
+use rand::rngs::SmallRng;
+use rand::{Rng, SeedableRng};
 use spin::RwLock;
 use tock_registers::interfaces::ReadWriteable;
 use tock_registers::interfaces::Readable;
@@ -383,10 +386,20 @@ pub fn init() {
 
         //ahci_controller.test_read(1, 1);
         //ahci_controller.test_write(1, 1);
-        
 
-        ahci_controller.benchmark_read(30000, 100);
-        
+        let mut small_rng = SmallRng::seed_from_u64(5);
+        for i in 1..100 {
+            let rand_pos = small_rng.next_u64();
+            let max_amt_of_sectors = 131071 as u64;
+            let fitting_pos = max_amt_of_sectors & rand_pos;
+
+            info!(
+                "die random zahl ist {}, und sollte kleiner gleich {} sein",
+                fitting_pos, max_amt_of_sectors
+            );
+        }
+
+        //ahci_controller.benchmark_read(100000, 2);
     }
 }
 
@@ -991,7 +1004,10 @@ impl AhciController {
         let max_capacity = deviceInfo.lbaCapacity.try_into().unwrap();
         if start_sector + (sector_count as u64) > max_capacity {
             info!("ERR: AHCI trys to read/write out of bounds!");
-            info!("start sector ist {}, und sector count ist {}", start_sector, sector_count);
+            info!(
+                "start sector ist {}, und sector count ist {}",
+                start_sector, sector_count
+            );
             info!("lba capacity ist:{}", max_capacity);
             return false;
         }
@@ -1029,7 +1045,6 @@ impl AhciController {
                 ptr::copy_nonoverlapping(src, ptr, size_of::<FisRegisterHostToDevice>());
             }
 
-
             self.read_from_device(
                 portnr,
                 buffer_addr,
@@ -1049,7 +1064,6 @@ impl AhciController {
             //schicke die Daten an wrtie_to_device
 
             let buffer_size = sector_count * (deviceInfo.bytesPerSector as u32);
-
 
             //hier wird in den Buffer geschrieben
 
@@ -1086,7 +1100,13 @@ impl AhciController {
         );
     }
 
-    unsafe fn test_read(&self, portnr: u32, arr_len: u32, id_device: DeviceInfo) -> &mut [u8] {
+    unsafe fn test_read(
+        &self,
+        portnr: u32,
+        start_sector: u64,
+        arr_len: u32,
+        id_device: DeviceInfo,
+    ) -> &mut [u8] {
         if portnr == 0 {
             info!("Achtung es wird vom Bootimage gelesen!");
         }
@@ -1100,64 +1120,13 @@ impl AhciController {
             &id_device,
             TransferMode::READ,
             single_region_addr,
-            0,
+            start_sector,
             arr_len,
         );
         let mut region_ptr = single_region.start.start_address().as_u64() as *mut u8;
         let array = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
         frames::free(single_region);
         array
-    }
-
-    unsafe fn test_write_debug(&self, portnr: u32, arr_len: u32) {
-        if portnr == 0 {
-            info!("Achtung es wird ins Bootimage geschrieben!");
-        }
-        let read_bytes: u32 = SEKTORGROESSE * arr_len;
-        let id_device = self.identify_device(portnr);
-        //erzeuge einen neuen buffer
-        let write_region = AhciController::allocate_heap_region(read_bytes);
-        let write_region_addr =write_region.start.start_address().as_u64();
-        //wandel den buffer zum slice um
-        let mut write_region_ptr = write_region_addr as *mut u8;
-        let mut write_sl = core::slice::from_raw_parts_mut(write_region_ptr, read_bytes as usize);
-        //schreibe in den slice:
-        for i in 0..write_sl.len() {
-            write_sl[i] = 9;
-        }
-
-        info!(
-            "das zu schreibende array ist (kontrollwert): {:?}",
-            write_sl
-        );
-        //schreibe das array an die Stelle in den Speicher:
-        self.performAtaIO(
-            portnr,
-            &id_device,
-            TransferMode::WRITE,
-            write_region_addr,
-            0,
-            arr_len,
-        );
-        info!("Kontrollwert wird geschrieben");
-        let ctrl_single_region = AhciController::allocate_heap_region(read_bytes);
-        let ctrl_single_region_addr = ctrl_single_region.start.start_address().as_u64();
-        self.performAtaIO(
-            portnr,
-            &id_device,
-            TransferMode::READ,
-            ctrl_single_region_addr,
-            0,
-            arr_len,
-        );
-        let mut ctrl_region_ptr = ctrl_single_region.start.start_address().as_u64() as *mut u8;
-        let mut ctrl_readable_array =
-            core::slice::from_raw_parts_mut(ctrl_region_ptr, read_bytes as usize);
-        info!("das gelesene kontrollarray ist: {:?}", ctrl_readable_array);
-        info!("first free in test_write_debug");
-        frames::free(ctrl_single_region);
-        info!("second free in test_write_debug");
-        frames::free(write_region);
     }
 
     unsafe fn test_write(
@@ -1173,11 +1142,10 @@ impl AhciController {
         let read_bytes: u32 = SEKTORGROESSE * arr_len;
         //erzeuge einen neuen buffer
         let write_region = AhciController::allocate_heap_region(read_bytes);
-        let write_region_addr =write_region.start.start_address().as_u64();
+        let write_region_addr = write_region.start.start_address().as_u64();
         //wandel den buffer zum slice um
         let mut write_region_ptr = write_region_addr as *mut u8;
-        let mut write_sl =
-            core::slice::from_raw_parts_mut(write_region_ptr, read_bytes as usize);
+        let mut write_sl = core::slice::from_raw_parts_mut(write_region_ptr, read_bytes as usize);
         //schreibe in den slice:
         for i in 0..write_sl.len() {
             write_sl[i] = 6;
@@ -1311,19 +1279,21 @@ impl AhciController {
         //start timer:
         let start_time = sys_get_system_time();
 
-        let array = self.test_read(1, sector_count, id_device);
+        let array = self.test_read(1, 0, sector_count, id_device);
 
         let end_time = sys_get_system_time();
 
         let mut read_time = end_time - start_time;
 
-
         //check if the read_sectors are correct
         info!("read sectors sind: {:?}", array.len());
         let mut equal = true;
-        for i in 0..array.len(){
-            if array[i] != correct_arr[i]{
-                info!("array an stelle {} ist {}, und korrect wäre {}", i, array[i], correct_arr[i]);
+        for i in 0..array.len() {
+            if array[i] != correct_arr[i] {
+                info!(
+                    "array an stelle {} ist {}, und korrect wäre {}",
+                    i, array[i], correct_arr[i]
+                );
                 equal = false;
                 break;
                 // problem: ab 860486 wird nur 255 ausgelesen. was stimmt da mit der Platte nicht??
@@ -1340,6 +1310,25 @@ impl AhciController {
         }
     }
 
+    pub unsafe fn benchmark_random_single_read(
+        &self,
+        position: u64,
+        id_device: DeviceInfo,
+    ) -> isize {
+        //times only during the reading process and returns the time in ms
+        //the start sector is random for that:
+
+        //start timer:
+        let start_time = sys_get_system_time();
+
+        let array = self.test_read(1, position, 1, id_device);
+
+        let end_time = sys_get_system_time();
+
+        // because this type of benchmark only gets testet after the sequential one is done, we can assume that the read sectors are correct
+        (end_time - start_time) as isize
+    }
+
     pub unsafe fn benchmark_read(&self, sector_count: u32, repetitions: u32) {
         //repetitions should be a multiple of 10
         // all benchmarks on hdd.img
@@ -1348,21 +1337,19 @@ impl AhciController {
             sector_count, repetitions
         );
         let id_device = self.identify_device(1);
-        let correct_arr = self.test_read(1, sector_count, id_device);
-        let read_bytes = SEKTORGROESSE * sector_count;
-        
+        let correct_arr = self.test_read(1, 0, sector_count, id_device);
 
         let mut full_time_ms = 0;
         let mut amt_success = 0;
 
         for i in 0..repetitions {
-            let single_result = self.benchmark_check_single_read(sector_count, &correct_arr, id_device);
+            let single_result =
+                self.benchmark_check_single_read(sector_count, &correct_arr, id_device);
             if single_result != -1 {
                 full_time_ms += single_result;
                 amt_success += 1;
             }
         }
-        info!("free in benchmark_read, könnte das Problem sein");
         info!(
             "finished read benchmark, with {} sectors in a sequence and {} repetitions",
             sector_count, repetitions
@@ -1372,6 +1359,43 @@ impl AhciController {
             amt_success, repetitions, full_time_ms
         );
     }
+
+    pub unsafe fn benchmark_random_read(&self, repetitions: u32) {
+        //repetitions should be a multiple of 10
+        // all benchmarks on hdd.img
+        info!(
+            "start random read benchmark, with one sector at a random position and {} repetitions",
+            repetitions
+        );
+        let id_device = self.identify_device(1);
+        let mut full_time_ms = 0;
+
+        //generate the random nr_generator using a fixed seed
+        let mut small_rng = SmallRng::seed_from_u64(5);
+
+        for i in 0..repetitions {
+            // creating the random position
+            // the random position is within all of the sectors
+            let rand_pos = small_rng.next_u64();
+            let max_amt_of_sectors = (id_device.lbaCapacity - 1) as u64;
+            let fitting_pos = max_amt_of_sectors & rand_pos;
+            //read one sector at the random position
+            let single_result = self.benchmark_random_single_read(rand_pos, id_device);
+            if single_result != -1 {
+                full_time_ms += single_result;
+            }
+        }
+        info!(
+            "finished random read benchmark, with one sector at a random position and {} repetitions",
+            repetitions
+        );
+        info!(
+            "managed to read with a complete time of {} ms",
+            full_time_ms
+        );
+    }
+
+    // after the read benchmarks now the write benchmarks
 
     pub unsafe fn benchmark_one_write(&self, sector_count: u32, nr_to_write: u8) {
         let id_device = self.identify_device(1);
