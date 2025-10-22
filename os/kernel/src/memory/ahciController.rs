@@ -386,7 +386,7 @@ pub fn init() {
         
         // es schafft 40000 zu lesen, aber bei 10000 nicht? je 10 reps
         // bei 20 reps ist die shell nicht mehr da???
-        ahci_controller.benchmark_read(2000, 40);
+        ahci_controller.benchmark_read(20000, 5);
         
     }
     //die GHCR sind in Section 3 der Spezifikation zu finden. ich weiß noch nicht, wie man bis dahin kommt
@@ -850,13 +850,13 @@ impl AhciController {
         // alloc frame nötig
         // dann addr weitergeben
         //später ggf mehrere frames nötig
-        let mut allocated = frames::alloc(1);
+        let mut allocated = frames::alloc(descriptor_count as usize);
         let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
 
         //schreibe 0 in die ganzen Felder
 
         //warum kommt hier ein Fehler, wenn das nicht drin ist????
-        pointer.write_bytes(0, 4096 * descriptor_count as usize);
+        //pointer.write_bytes(0, 4096 * descriptor_count as usize);
         let output = pointer as *mut HbaCommandTable;
 
         if descriptor_count == 1 {
@@ -1088,7 +1088,7 @@ impl AhciController {
         );
     }
 
-    unsafe fn test_read(&self, portnr: u32, arr_len: u32, id_device: DeviceInfo) -> PhysFrameRange {
+    unsafe fn test_read(&self, portnr: u32, arr_len: u32, id_device: DeviceInfo) -> &mut [u8] {
         if portnr == 0 {
             info!("Achtung es wird vom Bootimage gelesen!");
         }
@@ -1105,7 +1105,10 @@ impl AhciController {
             0,
             arr_len,
         );
-        single_region
+        let mut region_ptr = single_region.start.start_address().as_u64() as *mut u8;
+        let array = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
+        frames::free(single_region);
+        array
     }
 
     unsafe fn test_write_debug(&self, portnr: u32, arr_len: u32) {
@@ -1310,15 +1313,12 @@ impl AhciController {
         //start timer:
         let start_time = sys_get_system_time();
 
-        let read_sectors = self.test_read(1, sector_count, id_device);
+        let array = self.test_read(1, sector_count, id_device);
 
         let end_time = sys_get_system_time();
 
         let mut read_time = end_time - start_time;
 
-        let read_bytes = SEKTORGROESSE * sector_count;
-        let mut region_ptr = read_sectors.start.start_address().as_u64() as *mut u8;
-        let array = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
 
         //check if the read_sectors are correct
         info!("read sectors sind: {:?}", array.len());
@@ -1334,12 +1334,10 @@ impl AhciController {
 
         if equal {
             //irgendwie wieder die read sectors herausbekommen und dann mit free arbeiten
-            info!("free in benchmark_check_single_read, in if yes");
-            frames::free(read_sectors);
+            info!("in benchmark_check_single_read, in if yes");
             read_time
         } else {
-            info!("free in benchmark_check_single_read, in if no");
-            frames::free(read_sectors);
+            info!("in benchmark_check_single_read, in if no");
             -1 as isize
         }
     }
@@ -1354,21 +1352,19 @@ impl AhciController {
         let id_device = self.identify_device(1);
         let correct_arr = self.test_read(1, sector_count, id_device);
         let read_bytes = SEKTORGROESSE * sector_count;
-        let mut region_ptr = correct_arr.start.start_address().as_u64() as *mut u8;
-        let array = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
+        
 
         let mut full_time_ms = 0;
         let mut amt_success = 0;
 
         for i in 0..repetitions {
-            let single_result = self.benchmark_check_single_read(sector_count, array, id_device);
+            let single_result = self.benchmark_check_single_read(sector_count, &correct_arr, id_device);
             if single_result != -1 {
                 full_time_ms += single_result;
                 amt_success += 1;
             }
         }
         info!("free in benchmark_read, könnte das Problem sein");
-        //frames::free(correct_arr);
         info!(
             "finished read benchmark, with {} sectors in a sequence and {} repetitions",
             sector_count, repetitions
