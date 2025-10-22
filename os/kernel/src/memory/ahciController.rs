@@ -387,10 +387,10 @@ pub fn init() {
         //ahci_controller.test_read(1, 1);
         //ahci_controller.test_write(1, 1);
 
-
         //läuft beides:
         //ahci_controller.benchmark_random_read(1000);
         //ahci_controller.benchmark_read(100000, 2);
+        ahci_controller.benchmark_write(1000, 10);
     }
 }
 
@@ -934,7 +934,7 @@ impl AhciController {
         let mut cmd_table = self.create_hba_cmd_table(byte_count, physical_dma);
         cmd_table.commandFis = command_fis.clone();
         cmd_table.atapiCommand = atapi_command.clone();
-        info!("die cmd_table sieht so aus: {:?}", cmd_table);
+        //info!("die cmd_table sieht so aus: {:?}", cmd_table);
 
         // hier wird alles in den cmd header geschrieben
         info!("byte count in write to device ist {}", byte_count);
@@ -1067,98 +1067,6 @@ impl AhciController {
         return true;
     }
 
-    unsafe fn test_identify_device_on_port(&self, portnr: u32) {
-        info!("identify device on port {}", portnr);
-        let id_device = self.identify_device(portnr);
-        info!("id device is {:?}", id_device);
-
-        let mut model = id_device.model.clone();
-        self.byte_swap(model.as_mut_ptr(), model.len().try_into().unwrap());
-        let model_str = String::from_utf8(Vec::from(model)).unwrap();
-        let mut serial_nr = id_device.serialNumber.clone();
-        self.byte_swap(serial_nr.as_mut_ptr(), serial_nr.len().try_into().unwrap());
-        let serial_str = String::from_utf8(Vec::from(serial_nr)).unwrap();
-        let mut firmware_rev = id_device.firmwareRevision.clone();
-        self.byte_swap(
-            firmware_rev.as_mut_ptr(),
-            firmware_rev.len().try_into().unwrap(),
-        );
-        let firmware_str = String::from_utf8(Vec::from(firmware_rev)).unwrap();
-
-        info!(
-            "model ist {}, firmware ist {}, seriennummer ist {}",
-            model_str, firmware_str, serial_str
-        );
-    }
-
-    unsafe fn test_read(
-        &self,
-        portnr: u32,
-        start_sector: u64,
-        arr_len: u32,
-        id_device: DeviceInfo,
-    ) -> &mut [u8] {
-        if portnr == 0 {
-            info!("Achtung es wird vom Bootimage gelesen!");
-        }
-        let sector_size = id_device.bytesPerSector;
-
-        let read_bytes: u32 = SEKTORGROESSE * arr_len;
-        let single_region = AhciController::allocate_heap_region(read_bytes);
-        let single_region_addr = single_region.start.start_address().as_u64();
-        self.performAtaIO(
-            portnr,
-            &id_device,
-            TransferMode::READ,
-            single_region_addr,
-            start_sector,
-            arr_len,
-        );
-        let mut region_ptr = single_region.start.start_address().as_u64() as *mut u8;
-        let array = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
-        frames::free(single_region);
-        array
-    }
-
-    unsafe fn test_write(
-        &self,
-        portnr: u32,
-        arr_len: u32,
-        nr_to_write: u8,
-        id_device: DeviceInfo,
-    ) -> isize {
-        if portnr == 0 {
-            info!("Achtung es wird ins Bootimage geschrieben!");
-        }
-        let read_bytes: u32 = SEKTORGROESSE * arr_len;
-        //erzeuge einen neuen buffer
-        let write_region = AhciController::allocate_heap_region(read_bytes);
-        let write_region_addr = write_region.start.start_address().as_u64();
-        //wandel den buffer zum slice um
-        let mut write_region_ptr = write_region_addr as *mut u8;
-        let mut write_sl = core::slice::from_raw_parts_mut(write_region_ptr, read_bytes as usize);
-        //schreibe in den slice:
-        for i in 0..write_sl.len() {
-            write_sl[i] = 6;
-        }
-        //schreibe das array an die Stelle in den Speicher:
-        //starte den Timer
-        let start_time = sys_get_system_time();
-        self.performAtaIO(
-            portnr,
-            &id_device,
-            TransferMode::WRITE,
-            write_region_addr,
-            0,
-            arr_len,
-        );
-        let end_time = sys_get_system_time();
-        let mut read_time = end_time - start_time;
-        info!("free in test_write");
-        frames::free(write_region);
-        read_time
-    }
-
     //diese Funktionen soll dann auch von Block Device ausgeführt werden
     unsafe fn read(
         &self,
@@ -1254,7 +1162,99 @@ impl AhciController {
 
     // hier beginnen die Benchmarks
 
-    // vielleicht die Device Info weitergeben?
+    unsafe fn test_identify_device_on_port(&self, portnr: u32) {
+        info!("identify device on port {}", portnr);
+        let id_device = self.identify_device(portnr);
+        info!("id device is {:?}", id_device);
+
+        let mut model = id_device.model.clone();
+        self.byte_swap(model.as_mut_ptr(), model.len().try_into().unwrap());
+        let model_str = String::from_utf8(Vec::from(model)).unwrap();
+        let mut serial_nr = id_device.serialNumber.clone();
+        self.byte_swap(serial_nr.as_mut_ptr(), serial_nr.len().try_into().unwrap());
+        let serial_str = String::from_utf8(Vec::from(serial_nr)).unwrap();
+        let mut firmware_rev = id_device.firmwareRevision.clone();
+        self.byte_swap(
+            firmware_rev.as_mut_ptr(),
+            firmware_rev.len().try_into().unwrap(),
+        );
+        let firmware_str = String::from_utf8(Vec::from(firmware_rev)).unwrap();
+
+        info!(
+            "model ist {}, firmware ist {}, seriennummer ist {}",
+            model_str, firmware_str, serial_str
+        );
+    }
+
+    unsafe fn test_read(
+        &self,
+        portnr: u32,
+        start_sector: u64,
+        arr_len: u32,
+        id_device: DeviceInfo,
+    ) -> &mut [u8] {
+        if portnr == 0 {
+            info!("Achtung es wird vom Bootimage gelesen!");
+        }
+        let sector_size = id_device.bytesPerSector;
+
+        let read_bytes: u32 = SEKTORGROESSE * arr_len;
+        let single_region = AhciController::allocate_heap_region(read_bytes);
+        let single_region_addr = single_region.start.start_address().as_u64();
+        self.performAtaIO(
+            portnr,
+            &id_device,
+            TransferMode::READ,
+            single_region_addr,
+            start_sector,
+            arr_len,
+        );
+        let mut region_ptr = single_region.start.start_address().as_u64() as *mut u8;
+        let array = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
+        frames::free(single_region);
+        array
+    }
+
+    unsafe fn test_write(
+        &self,
+        portnr: u32,
+        start_sector: u64,
+        sector_count: u32,
+        nr_to_write: u8,
+        id_device: DeviceInfo,
+    ) -> isize {
+        if portnr == 0 {
+            info!("Achtung es wird ins Bootimage geschrieben!");
+        }
+        let read_bytes: u32 = SEKTORGROESSE * sector_count;
+        //erzeuge einen neuen buffer
+        let write_region = AhciController::allocate_heap_region(read_bytes);
+        let write_region_addr = write_region.start.start_address().as_u64();
+        //wandel den buffer zum slice um
+        let mut write_region_ptr = write_region_addr as *mut u8;
+        let mut write_sl = core::slice::from_raw_parts_mut(write_region_ptr, read_bytes as usize);
+        //schreibe in den slice:
+        for i in 0..write_sl.len() {
+            write_sl[i] = nr_to_write;
+        }
+        //schreibe das array an die Stelle in den Speicher:
+        //starte den Timer
+        let start_time = sys_get_system_time();
+        self.performAtaIO(
+            portnr,
+            &id_device,
+            TransferMode::WRITE,
+            write_region_addr,
+            start_sector,
+            sector_count,
+        );
+        let end_time = sys_get_system_time();
+        let mut read_time = end_time - start_time;
+        info!("free in test_write");
+        frames::free(write_region);
+        read_time
+    }
+
     // first scenario of Benchmarking: read a lot of sectors in a sequence
 
     pub unsafe fn benchmark_check_single_read(
@@ -1383,26 +1383,55 @@ impl AhciController {
 
     // after the read benchmarks now the write benchmarks
 
-    pub unsafe fn benchmark_one_write(&self, sector_count: u32, nr_to_write: u8) {
-        let id_device = self.identify_device(1);
-        let read_bytes: u32 = SEKTORGROESSE * sector_count;
-        let write_region = AhciController::allocate_heap_region(read_bytes);
-        //wandel den buffer zum slice um
-        let mut write_region_ptr = write_region.start.start_address().as_u64() as *mut u8;
-        let mut correct = core::slice::from_raw_parts_mut(write_region_ptr, read_bytes as usize);
-        //schreibe in die slice:
-        for i in 0..correct.len() {
-            correct[i] = nr_to_write;
-        }
-        info!("free in benchmark_one_write");
-        frames::free(write_region);
+    pub unsafe fn benchmark_check_single_write(
+        &self,
+        sector_count: u32,
+        id_device: DeviceInfo,
+    ) -> isize {
+        let work_time = self.test_write(1, 0, sector_count, 5, id_device);
+        // test if i read the same sectors, that all of them have the same number
+        let read = self.test_read(1, 0, sector_count, id_device);
 
-        todo!("hier muss noch weiter gearbeitet werden!!!")
+        let mut success = true;
+        for i in 0..read.len() {
+            if read[i] != 5 {
+                info!("error, das passt nicht: i ist {}, sollte {} sein", i, read[i]);
+                success = false;
+                break;
+            }
+        }
+        // reset the sectors to another value
+        self.test_write(1, 0, sector_count, 8, id_device);
+        if success { work_time } else { -1 }
     }
 
+    pub unsafe fn benchmark_random_one_write(&self) {}
+
     pub unsafe fn benchmark_write(&self, sector_count: u32, repetitions: u32) {
-        //repetitions should be a multiple of 10
-        // all benchmarks on hdd.img
+        // always start at the first sector on the hdd.img
+        info!(
+            "start write benchmark, with {} sectors in a sequence and {} repetitions",
+            sector_count, repetitions
+        );
+        let id_device = self.identify_device(1);
+        let mut full_time_ms = 0;
+        let mut amt_success = 0;
+
+        for i in 0..repetitions {
+            let single_result = self.benchmark_check_single_write(sector_count, id_device);
+            if single_result != -1 {
+                full_time_ms += single_result;
+                amt_success += 1;
+            }
+        }
+        info!(
+            "finished write benchmark, with {} sectors in a sequence and {} repetitions",
+            sector_count, repetitions
+        );
+        info!(
+            "managed to write {} of {} times successfully with a complete time of {} ms",
+            amt_success, repetitions, full_time_ms
+        );
     }
 
     //second scenario: read and write sectors at random spots
