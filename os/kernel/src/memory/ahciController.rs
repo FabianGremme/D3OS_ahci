@@ -390,7 +390,7 @@ pub fn init() {
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
         //ahci_controller.benchmark_read(100000, 2, 1);
-        //ahci_controller.benchmark_write(10, 10, 1);
+        ahci_controller.benchmark_write(1000, 10, 1);
         //ahci_controller.benchmark_random_write(100, 1);
     }
 }
@@ -759,6 +759,75 @@ impl AhciController {
         unsafe { output.read() }
     }
 
+    pub unsafe fn create_hba_cmd_table(
+        &self,
+        byte_count: u32,
+        physical_dma_buffer: u64,
+    ) -> &'static mut HbaCommandTable {
+        //berechne, wie viele descriptoren benötigt werden
+        let mut descriptor_count;
+        info!("byte count ist: {:?}", byte_count);
+        info!("berechne descriptor_count: {:?}", byte_count / 4096);
+        let full_amt = byte_count / 4096;
+        let rest = byte_count % 4096;
+        info!("full amt is {} and rest ist {}", full_amt, rest);
+        if rest != 0 {
+            descriptor_count = full_amt + 1;
+        } else {
+            descriptor_count = full_amt;
+        }
+
+        // füllt nur mit 0 auf, weil das später anders reinkopiert wird
+        // alloc frame nötig
+        // dann addr weitergeben
+        //später ggf mehrere frames nötig
+        let mut allocated = frames::alloc(descriptor_count as usize);
+        let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
+
+        //schreibe 0 in die ganzen Felder
+
+        //warum kommt hier ein Fehler, wenn das nicht drin ist????
+        //pointer.write_bytes(0, 4096 * descriptor_count as usize);
+        let output = pointer as *mut HbaCommandTable;
+
+        if descriptor_count == 1 {
+            info!("es reicht ein descriptor");
+            //descriptor hängt direkt nach der hba_cmd_table
+            let mut descriptor = output.offset(1) as *mut HbaPhysicalRegionDescriptorTableEntry;
+            (*descriptor).dataBaseAddress = physical_dma_buffer as u32;
+            (*descriptor).dataBaseAddressUpper = (physical_dma_buffer >> 32) as u32;
+            (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
+            info!("done");
+        } else {
+            info!("descriptor count ist {:?}", descriptor_count);
+            for i in 0..descriptor_count {
+                let mut descriptor =
+                    output.offset((i + 1) as isize) as *mut HbaPhysicalRegionDescriptorTableEntry;
+
+                (*descriptor).dataBaseAddress = (physical_dma_buffer + (i * 4096) as u64) as u32;
+                (*descriptor).dataBaseAddressUpper =
+                    ((physical_dma_buffer + (i * 4096) as u64) >> 32) as u32;
+
+                let remaining_bytes = byte_count - i * 4096;
+                if remaining_bytes < 4096 {
+                    (*descriptor).databytecount_and_interruptOnCompletion = remaining_bytes;
+                } else {
+                    (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
+                }
+            }
+        }
+
+        output.as_mut().unwrap()
+    }
+
+    pub unsafe fn byte_swap(&self, input: *mut u8, len: isize) {
+        for i in (0..len).step_by(2) {
+            let swap = *input.offset(i);
+            *input.offset(i) = *input.offset(i + 1);
+            *input.offset(i + 1) = swap;
+        }
+    }
+
     pub unsafe fn read_from_device(
         &self,
         portnr: u32,
@@ -832,85 +901,15 @@ impl AhciController {
         }
     }
 
-    pub unsafe fn create_hba_cmd_table(
-        &self,
-        byte_count: u32,
-        physical_dma_buffer: u64,
-    ) -> &'static mut HbaCommandTable {
-        //berechne, wie viele descriptoren benötigt werden
-        let mut descriptor_count;
-        info!("byte count ist: {:?}", byte_count);
-        info!("berechne descriptor_count: {:?}", byte_count / 4096);
-        let full_amt = byte_count / 4096;
-        let rest = byte_count % 4096;
-        info!("full amt is {} and rest ist {}", full_amt, rest);
-        if rest != 0 {
-            descriptor_count = full_amt + 1;
-        } else {
-            descriptor_count = full_amt;
-        }
-
-        // füllt nur mit 0 auf, weil das später anders reinkopiert wird
-        // alloc frame nötig
-        // dann addr weitergeben
-        //später ggf mehrere frames nötig
-        let mut allocated = frames::alloc(descriptor_count as usize);
-        let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
-
-        //schreibe 0 in die ganzen Felder
-
-        //warum kommt hier ein Fehler, wenn das nicht drin ist????
-        //pointer.write_bytes(0, 4096 * descriptor_count as usize);
-        let output = pointer as *mut HbaCommandTable;
-
-        if descriptor_count == 1 {
-            info!("es reicht ein descriptor");
-            //descriptor hängt direkt nach der hba_cmd_table
-            let mut descriptor = output.offset(1) as *mut HbaPhysicalRegionDescriptorTableEntry;
-            (*descriptor).dataBaseAddress = physical_dma_buffer as u32;
-            (*descriptor).dataBaseAddressUpper = (physical_dma_buffer >> 32) as u32;
-            (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
-            info!("done");
-        } else {
-            info!("descriptor count ist {:?}", descriptor_count);
-            for i in 0..descriptor_count {
-                let mut descriptor =
-                    output.offset((i + 1) as isize) as *mut HbaPhysicalRegionDescriptorTableEntry;
-
-                (*descriptor).dataBaseAddress = (physical_dma_buffer + (i * 4096) as u64) as u32;
-                (*descriptor).dataBaseAddressUpper =
-                    ((physical_dma_buffer + (i * 4096) as u64) >> 32) as u32;
-
-                let remaining_bytes = byte_count - i * 4096;
-                if remaining_bytes < 4096 {
-                    (*descriptor).databytecount_and_interruptOnCompletion = remaining_bytes;
-                } else {
-                    (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
-                }
-            }
-        }
-
-        output.as_mut().unwrap()
-    }
-
-    pub unsafe fn byte_swap(&self, input: *mut u8, len: isize) {
-        for i in (0..len).step_by(2) {
-            let swap = *input.offset(i);
-            *input.offset(i) = *input.offset(i + 1);
-            *input.offset(i + 1) = swap;
-        }
-    }
-
     pub unsafe fn write_to_device(
         &self,
         portnr: u32,
-        physical_dma: u64,
+        mut physical_dma: u64,
         byte_count: u32,
         mut command_fis: [u8; 64],
         atapi_command: [u8; 16],
     ) -> bool {
         let mut port = (self.ports_start as *mut HbaPort).offset(portnr.try_into().unwrap());
-        info!("port in write to device ist {:?}", port);
         let mut command_list_addr = (*port).commandListBaseAddress as u64
             | (((*port).commandListBaseAddressUpper as u64) << 32);
 
@@ -918,7 +917,7 @@ impl AhciController {
         let mut first_cmd_header = Self::get_cmd_table_header(command_list_addr as *mut u8);
         //die command List besteht aus cmd_table_headern, welche selbst dann auf die command Table verweisen
         info!(
-            "first_cmd_header in read from device is {:?}",
+            "first_cmd_header in write to device is {:?}",
             first_cmd_header
         );
 
@@ -932,11 +931,12 @@ impl AhciController {
             info!("ERR: Slot nicht gefunden");
             return false;
         }
-
+        // muss das hier irgendwie anders gemacht werden??
+        // mal im hhuos nachschauen
         let mut cmd_table = self.create_hba_cmd_table(byte_count, physical_dma);
         cmd_table.commandFis = command_fis.clone();
         cmd_table.atapiCommand = atapi_command.clone();
-        //info!("die cmd_table sieht so aus: {:?}", cmd_table);
+        info!("die cmd_table sieht so aus: {:?}", cmd_table);
 
         // hier wird alles in den cmd header geschrieben
         info!("byte count in write to device ist {}", byte_count);
@@ -961,14 +961,15 @@ impl AhciController {
         let cmd_table_base_addr: u64 = ptr::from_mut(cmd_table) as u64;
         let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
         let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
+        info!("cmd_table ist {}, die wird in lower {} und upper {} unterteilt", cmd_table_base_addr, lower_cmd_table_base_addr, upper_cmd_table_base_addr);
 
         //alles zu dem first zusammenfügen (atapi, cmd_fis_len und prdt_len)
         // atapi ist 0, weil es ein ata Befehl ist
         // cmd_fis_len ist 5
-        //prdt_len ist 1 (weil nur eine prdt benötigt wird)
+
         let dword0 = (physical_region_descriptor_table_length << 16) as u32
             | (atapi << 5) as u32
-            | (write << 4) as u32       //es soll geschrieben werden
+            //| (write << 4) as u32       //es soll geschrieben werden
             | cmd_fis_len as u32;
         (*first_cmd_header).dword0 = dword0;
         info!("dword0 write ist {:b}", dword0);
@@ -1004,11 +1005,13 @@ impl AhciController {
             info!("lba capacity ist:{}", max_capacity);
             return false;
         }
+        info!("start Sector in perform ataio ist: {}", start_sector);
 
         let mut command_fis = [0u8; 64];
         let mut atapi_cmd = [0u8; 16];
 
         //baue das command fis
+        // gibt es hier Probleme??
         let mut host_to_device_fis = FisRegisterHostToDevice {
             typ: 39,                     //Typ = Host To Device
             port_mult_and_cmd_ctrl: 128, //nur command control ist auf 1
@@ -1203,6 +1206,7 @@ impl AhciController {
         let read_bytes: u32 = SEKTORGROESSE * sector_count;
         let single_region = AhciController::allocate_heap_region(read_bytes);
         let single_region_addr = single_region.start.start_address().as_u64();
+        info!("start Sector in test read ist: {}", start_sector);
         self.performAtaIO(
             portnr,
             &id_device,
@@ -1394,6 +1398,7 @@ impl AhciController {
         port_nr: u32
     ) -> isize {
         let work_time = self.test_write(port_nr, 0, sector_count, 5, id_device);
+        info!("test");
         // test if i read the same sectors, that all of them have the same number
         let read = self.test_read(port_nr, 0, sector_count, id_device);
         //info!("die länge des arr ist {}", read.len());
@@ -1403,7 +1408,7 @@ impl AhciController {
         let mut success = true;
         for i in 0..read.len() {
             if read[i] != 5 {
-                info!("error, das passt nicht: i ist {}, sollte {} sein", i, read[i]);       
+                info!("error, das passt nicht: i ist {}, sollte 5 sein, ist aber {}", i, read[i]);       
                 //todo: hier die 16 Byte anschauen
                 success = false;
                 count_bad += 1;
