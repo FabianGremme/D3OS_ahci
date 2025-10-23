@@ -390,7 +390,7 @@ pub fn init() {
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
         //ahci_controller.benchmark_read(100000, 2, 1);
-        ahci_controller.benchmark_write(1000, 10, 1);
+        //ahci_controller.benchmark_write(10, 10, 1);
         //ahci_controller.benchmark_random_write(100, 1);
     }
 }
@@ -1019,8 +1019,8 @@ impl AhciController {
             lba2: (start_sector >> 16 & 0xff) as u8,
             device: 1 << 6, // LBA mode
             lba3: (start_sector >> 24 & 0xff) as u8,
-            lba4: 0,
-            lba5: 0,
+            lba4: (start_sector >> 32 & 0xff) as u8,
+            lba5: (start_sector >> 40 & 0xff) as u8,
             featureHigh: 0,
             countLow: (sector_count & 0xff) as u8,
             countHigh: (sector_count >> 8 & 0xff) as u8,
