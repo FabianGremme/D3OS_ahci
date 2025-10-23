@@ -389,8 +389,8 @@ pub fn init() {
 
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
-        //ahci_controller.benchmark_read(100000, 2, 1);
-        ahci_controller.benchmark_write(1000, 10, 1);
+        //ahci_controller.benchmark_read(100000, 1, 1);
+        ahci_controller.benchmark_write(10000, 1, 1);
         //ahci_controller.benchmark_random_write(100, 1);
     }
 }
@@ -786,7 +786,6 @@ impl AhciController {
 
         //schreibe 0 in die ganzen Felder
 
-        //warum kommt hier ein Fehler, wenn das nicht drin ist????
         //pointer.write_bytes(0, 4096 * descriptor_count as usize);
         let output = pointer as *mut HbaCommandTable;
 
@@ -846,11 +845,13 @@ impl AhciController {
 
             if Self::check_port_usable(port) != true {
                 info!("ERR: Port is not usable");
+                return;
             }
 
             let slot = self.find_cmd_slot(port);
             if slot == -1 {
                 info!("ERR: Slot nicht gefunden");
+                return;
             }
 
             // hier wird nur die command table gemacht, nicht die command list
@@ -969,7 +970,7 @@ impl AhciController {
 
         let dword0 = (physical_region_descriptor_table_length << 16) as u32
             | (atapi << 5) as u32
-            //| (write << 4) as u32       //es soll geschrieben werden
+            | (write << 4) as u32       //es soll geschrieben werden
             | cmd_fis_len as u32;
         (*first_cmd_header).dword0 = dword0;
         info!("dword0 write ist {:b}", dword0);
