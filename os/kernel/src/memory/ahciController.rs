@@ -763,7 +763,7 @@ impl AhciController {
         &self,
         byte_count: u32,
         physical_dma_buffer: u64,
-    ) -> &'static mut HbaCommandTable {
+    ) -> * mut HbaCommandTable {
         //berechne, wie viele descriptoren benötigt werden
         let mut descriptor_count;
         info!("byte count ist: {:?}", byte_count);
@@ -817,7 +817,7 @@ impl AhciController {
             }
         }
 
-        output.as_mut().unwrap()
+        output
     }
 
     pub unsafe fn byte_swap(&self, input: *mut u8, len: isize) {
@@ -855,8 +855,8 @@ impl AhciController {
 
             // hier wird nur die command table gemacht, nicht die command list
             let mut cmd_table = self.create_hba_cmd_table(byte_count, physical_dma);
-            cmd_table.commandFis = command_fis.clone();
-            cmd_table.atapiCommand = atapi_command.clone();
+            (*cmd_table).commandFis = command_fis.clone();
+            (*cmd_table).atapiCommand = atapi_command.clone();
 
             info!("byte count in read to device ist {}", byte_count);
             let mut physical_region_descriptor_table_length;
@@ -875,7 +875,7 @@ impl AhciController {
                 atapi = 1;
             }
             //zerteile die Adresse
-            let cmd_table_base_addr: u64 = ptr::from_mut(cmd_table) as u64;
+            let cmd_table_base_addr: u64 = cmd_table as u64;
             let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
             let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
 
@@ -934,8 +934,8 @@ impl AhciController {
         // muss das hier irgendwie anders gemacht werden??
         // mal im hhuos nachschauen
         let mut cmd_table = self.create_hba_cmd_table(byte_count, physical_dma);
-        cmd_table.commandFis = command_fis.clone();
-        cmd_table.atapiCommand = atapi_command.clone();
+        (*cmd_table).commandFis = command_fis.clone();
+        (*cmd_table).atapiCommand = atapi_command.clone();
         info!("die cmd_table sieht so aus: {:?}", cmd_table);
 
         // hier wird alles in den cmd header geschrieben
@@ -958,7 +958,7 @@ impl AhciController {
         let write = 1;
 
         //zerteile die Adresse
-        let cmd_table_base_addr: u64 = ptr::from_mut(cmd_table) as u64;
+        let cmd_table_base_addr: u64 = cmd_table as u64;
         let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
         let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
         info!("cmd_table ist {}, die wird in lower {} und upper {} unterteilt", cmd_table_base_addr, lower_cmd_table_base_addr, upper_cmd_table_base_addr);
