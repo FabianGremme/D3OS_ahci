@@ -389,7 +389,7 @@ pub fn init() {
 
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
-        ahci_controller.benchmark_read(90000, 10, 1);
+        ahci_controller.benchmark_read(120000, 10, 1);
         //ahci_controller.benchmark_write(8100, 1, 1);
         //ahci_controller.benchmark_random_write(100, 1);
     }
