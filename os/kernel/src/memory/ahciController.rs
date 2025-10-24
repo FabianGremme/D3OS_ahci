@@ -389,8 +389,12 @@ pub fn init() {
 
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
-        ahci_controller.benchmark_read(120000, 10, 1);
-        //ahci_controller.benchmark_write(8100, 1, 1);
+        //ahci_controller.benchmark_read(120000, 10, 1);
+        ahci_controller.benchmark_write(100, 1, 1);
+
+        // bei 100  16% nicht gelesen
+        //bei 1000 wir 2/125 nicht gelesen
+        //bei 10000 wird das erste Achtel nicht gelesen
         //ahci_controller.benchmark_random_write(100, 1);
     }
 }
@@ -792,18 +796,20 @@ impl AhciController {
             info!("descriptor count ist {:?}", descriptor_count);
             for i in 0..descriptor_count {
                 let mut descriptor =
-                    output.offset((i + 1) as isize) as *mut HbaPhysicalRegionDescriptorTableEntry;
+                    output.offset((i +1) as isize) as *mut HbaPhysicalRegionDescriptorTableEntry;
 
                 (*descriptor).dataBaseAddress = (physical_dma_buffer + (i * 4096) as u64) as u32;
                 (*descriptor).dataBaseAddressUpper =
                     ((physical_dma_buffer + (i * 4096) as u64) >> 32) as u32;
 
                 let remaining_bytes = byte_count - i * 4096;
+                info!("remaining bytes ist: {}", remaining_bytes);
                 if remaining_bytes < 4096 {
                     (*descriptor).databytecount_and_interruptOnCompletion = remaining_bytes;
                 } else {
                     (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
                 }
+                info!("der fertige descriptor ist {:?}", *descriptor);
             }
         }
 
@@ -1440,9 +1446,10 @@ impl AhciController {
         let mut success = true;
         for i in 0..read.len() {
             if read[i] != 5 {
+                let sector = i/512;
                 info!(
-                    "error, das passt nicht: i ist {}, sollte 5 sein, ist aber {}",
-                    i, read[i]
+                    "error, das passt nicht: i ist {}, in sektor {}, sollte 5 sein, ist aber {}",
+                    i, sector, read[i]
                 );
                 //todo: hier die 16 Byte anschauen
                 success = false;
