@@ -389,15 +389,14 @@ pub fn init() {
 
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
-        //ahci_controller.benchmark_read(90000, 1, 1);
-        ahci_controller.benchmark_write(8100, 1, 1);
+        ahci_controller.benchmark_read(1000, 1, 1);
+        //ahci_controller.benchmark_write(8100, 1, 1);
         //ahci_controller.benchmark_random_write(100, 1);
     }
 }
 
 #[allow(warnings)]
 impl AhciController {
-
     fn get_cmd_table_header(start: *mut u8) -> *mut HbaCommandTableHeader {
         unsafe { start as *mut HbaCommandTableHeader }
     }
@@ -763,20 +762,9 @@ impl AhciController {
         &self,
         byte_count: u32,
         physical_dma_buffer: u64,
-    ) -> * mut HbaCommandTable {
-        //berechne, wie viele descriptoren benötigt werden
-        let mut descriptor_count;
-        info!("byte count ist: {:?}", byte_count);
-        info!("berechne descriptor_count: {:?}", byte_count / 4096);
-        let full_amt = byte_count / 4096;
-        let rest = byte_count % 4096;
-        info!("full amt is {} and rest ist {}", full_amt, rest);
-        if rest != 0 {
-            descriptor_count = full_amt + 1;
-        } else {
-            descriptor_count = full_amt;
-        }
-
+        prdt_start_addr: u64,
+        descriptor_count: u32,
+    ) -> *mut HbaCommandTable {
         // füllt nur mit 0 auf, weil das später anders reinkopiert wird
         // alloc frame nötig
         // dann addr weitergeben
@@ -784,8 +772,8 @@ impl AhciController {
 
         //kann allocated auch wo anders gemacht werden
         //vielleicht das als u64 adresse reingeben??
-        let mut allocated = frames::alloc(descriptor_count as usize);
-        let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
+
+        let pointer: *mut u8 = prdt_start_addr as *mut u8;
 
         //schreibe 0 in die ganzen Felder
 
@@ -858,7 +846,28 @@ impl AhciController {
             }
 
             // hier wird nur die command table gemacht, nicht die command list
-            let mut cmd_table = self.create_hba_cmd_table(byte_count, physical_dma);
+            //berechne, wie viele descriptoren benötigt werden
+            let mut descriptor_count;
+            info!("byte count ist: {:?}", byte_count);
+            info!("berechne descriptor_count: {:?}", byte_count / 4096);
+            let full_amt = byte_count / 4096;
+            let rest = byte_count % 4096;
+            info!("full amt is {} and rest ist {}", full_amt, rest);
+            if rest != 0 {
+                descriptor_count = full_amt + 1;
+            } else {
+                descriptor_count = full_amt;
+            }
+
+            let mut prdt_frames = frames::alloc(descriptor_count as usize);
+            let prdt_start_addr = prdt_frames.start.start_address().as_u64();
+
+            let mut cmd_table = self.create_hba_cmd_table(
+                byte_count,
+                physical_dma,
+                prdt_start_addr,
+                descriptor_count,
+            );
             (*cmd_table).commandFis = command_fis.clone();
             (*cmd_table).atapiCommand = atapi_command.clone();
 
@@ -900,6 +909,7 @@ impl AhciController {
             if !success {
                 info!("ERR: issueCommand hatte einen Fehler")
             }
+            //frames::free(prdt_frames);
 
             //Some(physical_dma)
         }
@@ -935,9 +945,24 @@ impl AhciController {
             info!("ERR: Slot nicht gefunden");
             return false;
         }
-        // muss das hier irgendwie anders gemacht werden??
-        // mal im hhuos nachschauen
-        let mut cmd_table = self.create_hba_cmd_table(byte_count, physical_dma);
+        //berechne, wie viele descriptoren benötigt werden
+        let mut descriptor_count;
+        info!("byte count ist: {:?}", byte_count);
+        info!("berechne descriptor_count: {:?}", byte_count / 4096);
+        let full_amt = byte_count / 4096;
+        let rest = byte_count % 4096;
+        info!("full amt is {} and rest ist {}", full_amt, rest);
+        if rest != 0 {
+            descriptor_count = full_amt + 1;
+        } else {
+            descriptor_count = full_amt;
+        }
+
+        let mut prdt_frames = frames::alloc(descriptor_count as usize);
+        let prdt_start_addr = prdt_frames.start.start_address().as_u64();
+
+        let mut cmd_table =
+            self.create_hba_cmd_table(byte_count, physical_dma, prdt_start_addr, descriptor_count);
         (*cmd_table).commandFis = command_fis.clone();
         (*cmd_table).atapiCommand = atapi_command.clone();
         info!("die cmd_table sieht so aus: {:?}", cmd_table);
@@ -965,7 +990,10 @@ impl AhciController {
         let cmd_table_base_addr: u64 = cmd_table as u64;
         let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
         let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
-        info!("cmd_table ist {}, die wird in lower {} und upper {} unterteilt", cmd_table_base_addr, lower_cmd_table_base_addr, upper_cmd_table_base_addr);
+        info!(
+            "cmd_table ist {}, die wird in lower {} und upper {} unterteilt",
+            cmd_table_base_addr, lower_cmd_table_base_addr, upper_cmd_table_base_addr
+        );
 
         //alles zu dem first zusammenfügen (atapi, cmd_fis_len und prdt_len)
         // atapi ist 0, weil es ein ata Befehl ist
@@ -986,7 +1014,7 @@ impl AhciController {
             info!("ERR: issueCommand hatte einen Fehler");
             return false;
         }
-
+        //frames::free(prdt_frames);
         return true;
     }
 
@@ -1272,7 +1300,7 @@ impl AhciController {
         sector_count: u32,
         correct_arr: &[u8],
         id_device: DeviceInfo,
-        port_nr: u32
+        port_nr: u32,
     ) -> isize {
         // test, if the read amt of sectors is correct.
         //times only during the reading process and returns the time in ms
@@ -1313,7 +1341,7 @@ impl AhciController {
         &self,
         position: u64,
         id_device: DeviceInfo,
-        port_nr: u32
+        port_nr: u32,
     ) -> isize {
         //times only during the reading process and returns the time in ms
         //the start sector is random for that:
@@ -1399,7 +1427,7 @@ impl AhciController {
         &self,
         sector_count: u32,
         id_device: DeviceInfo,
-        port_nr: u32
+        port_nr: u32,
     ) -> isize {
         let work_time = self.test_write(port_nr, 0, sector_count, 5, id_device);
         info!("test");
@@ -1412,14 +1440,16 @@ impl AhciController {
         let mut success = true;
         for i in 0..read.len() {
             if read[i] != 5 {
-                info!("error, das passt nicht: i ist {}, sollte 5 sein, ist aber {}", i, read[i]);       
+                info!(
+                    "error, das passt nicht: i ist {}, sollte 5 sein, ist aber {}",
+                    i, read[i]
+                );
                 //todo: hier die 16 Byte anschauen
                 success = false;
                 count_bad += 1;
-            }else{
+            } else {
                 count += 1;
             }
-            
         }
         info!("count ist: {} und bad count ist: {}", count, count_bad);
         // reset the sectors to another value
@@ -1427,8 +1457,13 @@ impl AhciController {
         if success { work_time } else { -1 }
     }
 
-    pub unsafe fn benchmark_random_single_write(&self, start_sector: u64, id_device: DeviceInfo, port_nr: u32) ->  isize{
-        let work_time = self.test_write(port_nr, start_sector, 1, 5, id_device);        
+    pub unsafe fn benchmark_random_single_write(
+        &self,
+        start_sector: u64,
+        id_device: DeviceInfo,
+        port_nr: u32,
+    ) -> isize {
+        let work_time = self.test_write(port_nr, start_sector, 1, 5, id_device);
         // reset the sectors to another value
         self.test_write(port_nr, start_sector, 1, 8, id_device);
         work_time
