@@ -389,8 +389,8 @@ pub fn init() {
 
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
-        //ahci_controller.benchmark_read(100000, 1, 1);
-        ahci_controller.benchmark_write(10000, 1, 1);
+        //ahci_controller.benchmark_read(90000, 1, 1);
+        ahci_controller.benchmark_write(8100, 1, 1);
         //ahci_controller.benchmark_random_write(100, 1);
     }
 }
@@ -781,6 +781,9 @@ impl AhciController {
         // alloc frame nötig
         // dann addr weitergeben
         //später ggf mehrere frames nötig
+
+        //kann allocated auch wo anders gemacht werden
+        //vielleicht das als u64 adresse reingeben??
         let mut allocated = frames::alloc(descriptor_count as usize);
         let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
 
