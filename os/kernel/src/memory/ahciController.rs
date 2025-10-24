@@ -369,7 +369,7 @@ pub fn init() {
             ahci_controller.rebase_port(i);
         }
         ahci_controller.test_identify_all_ports();
-        ahci_controller.init_all_ports_as_block_devices();
+        //ahci_controller.init_all_ports_as_block_devices();
 
         info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
@@ -389,8 +389,8 @@ pub fn init() {
 
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
-        //ahci_controller.benchmark_read(120000, 10, 1);
-        ahci_controller.benchmark_write(100, 1, 1);
+        //ahci_controller.benchmark_read(20000, 10, 0);
+        ahci_controller.benchmark_write(10000, 1, 1);
 
         // bei 100  16% nicht gelesen
         //bei 1000 wir 2/125 nicht gelesen
@@ -803,13 +803,13 @@ impl AhciController {
                     ((physical_dma_buffer + (i * 4096) as u64) >> 32) as u32;
 
                 let remaining_bytes = byte_count - i * 4096;
-                info!("remaining bytes ist: {}", remaining_bytes);
+                //info!("remaining bytes ist: {}", remaining_bytes);
                 if remaining_bytes < 4096 {
                     (*descriptor).databytecount_and_interruptOnCompletion = remaining_bytes;
                 } else {
                     (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
                 }
-                info!("der fertige descriptor ist {:?}", *descriptor);
+                //info!("der fertige descriptor ist {:?}", *descriptor);
             }
         }
 
@@ -1082,7 +1082,7 @@ impl AhciController {
             self.read_from_device(
                 portnr,
                 buffer_addr,
-                sector_count * (deviceInfo.bytesPerSector as u32),
+                sector_count * 512,//(deviceInfo.bytesPerSector as u32),
                 command_fis,
                 atapi_cmd,
             );
@@ -1097,7 +1097,7 @@ impl AhciController {
 
             //schicke die Daten an wrtie_to_device
 
-            let buffer_size = sector_count * (deviceInfo.bytesPerSector as u32);
+            let buffer_size = sector_count * 512;//(deviceInfo.bytesPerSector as u32);
 
             //hier wird in den Buffer geschrieben
 
@@ -1209,8 +1209,12 @@ impl AhciController {
         info!("identify device on port {}", portnr);
         let id_device = self.identify_device(portnr);
         info!("id device is {:?}", id_device);
+        let t1 = id_device.words_per_sector;
+        let t2 = id_device.lbaCapacity;
+        info!("das Gerät hat {:?} words pro Sektor und {:?} sektoren", t1, t2);
 
         let mut model = id_device.model.clone();
+        
         self.byte_swap(model.as_mut_ptr(), model.len().try_into().unwrap());
         let model_str = String::from_utf8(Vec::from(model)).unwrap();
         let mut serial_nr = id_device.serialNumber.clone();
@@ -1239,7 +1243,7 @@ impl AhciController {
         if portnr == 0 {
             info!("Achtung es wird vom Bootimage gelesen!");
         }
-        let sector_size = id_device.bytesPerSector;
+        let sector_size = 512;//id_device.bytesPerSector;
 
         let read_bytes: u32 = SEKTORGROESSE * sector_count;
         let single_region = AhciController::allocate_heap_region(read_bytes);
