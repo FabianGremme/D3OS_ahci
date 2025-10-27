@@ -390,7 +390,7 @@ pub fn init() {
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
         //ahci_controller.benchmark_read(20000, 10, 0);
-        ahci_controller.benchmark_write(100, 1, 1);
+        ahci_controller.benchmark_write(9000, 1, 1);
 
         // bei 100  16% nicht gelesen
         //bei 1000 wir 2/125 nicht gelesen
@@ -1259,7 +1259,8 @@ impl AhciController {
         );
         let mut region_ptr = single_region.start.start_address().as_u64() as *mut u8;
         let array = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
-        frames::free(single_region);
+        // hier kein free
+        //frames::free(single_region);
         array
     }
 
@@ -1625,7 +1626,7 @@ impl BlockDevice for AHCIDrive {
     }
 
     fn sector_size(&self) -> u16 {
-        self.info.bytesPerSector
+        SEKTORGROESSE as u16//self.info.bytesPerSector
     }
 }
 
