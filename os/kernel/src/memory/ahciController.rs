@@ -390,7 +390,7 @@ pub fn init() {
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
         //ahci_controller.benchmark_read(20000, 10, 0);
-        ahci_controller.benchmark_write(10000, 1, 1);
+        ahci_controller.benchmark_write(100, 1, 1);
 
         // bei 100  16% nicht gelesen
         //bei 1000 wir 2/125 nicht gelesen
@@ -1054,7 +1054,7 @@ impl AhciController {
             typ: 39,                     //Typ = Host To Device
             port_mult_and_cmd_ctrl: 128, //nur command control ist auf 1
             command: 0,
-            featureLow: 1, // HBA mode
+            featureLow: 0,              //todo das hier ist auf 0 war vorher 1
             lba0: (start_sector & 0xff) as u8,
             lba1: (start_sector >> 8 & 0xff) as u8,
             lba2: (start_sector >> 16 & 0xff) as u8,
