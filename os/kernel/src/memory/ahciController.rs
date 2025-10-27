@@ -390,7 +390,7 @@ pub fn init() {
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
         //ahci_controller.benchmark_read(20000, 10, 0);
-        ahci_controller.benchmark_write(9000, 1, 1);
+        ahci_controller.benchmark_write(10000, 1, 1);
 
         // bei 100  16% nicht gelesen
         //bei 1000 wir 2/125 nicht gelesen
@@ -1239,25 +1239,24 @@ impl AhciController {
         start_sector: u64,
         sector_count: u32,
         id_device: DeviceInfo,
+        region_addr: u64,
     ) -> &mut [u8] {
         if portnr == 0 {
             info!("Achtung es wird vom Bootimage gelesen!");
         }
         let sector_size = 512;//id_device.bytesPerSector;
-
         let read_bytes: u32 = SEKTORGROESSE * sector_count;
-        let single_region = AhciController::allocate_heap_region(read_bytes);
-        let single_region_addr = single_region.start.start_address().as_u64();
+        
         info!("start Sector in test read ist: {}", start_sector);
         self.performAtaIO(
             portnr,
             &id_device,
             TransferMode::READ,
-            single_region_addr,
+            region_addr,
             start_sector,
             sector_count,
         );
-        let mut region_ptr = single_region.start.start_address().as_u64() as *mut u8;
+        let mut region_ptr = region_addr as *mut u8;
         let array = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
         // hier kein free
         //frames::free(single_region);
@@ -1318,9 +1317,16 @@ impl AhciController {
         // if the read sectors does not fit with the correct array, it returns -1
 
         //start timer:
+
+        let sector_size = 512;//id_device.bytesPerSector;
+
+        let read_bytes: u32 = SEKTORGROESSE * sector_count;
+        let single_region = AhciController::allocate_heap_region(read_bytes);
+        let single_region_addr = single_region.start.start_address().as_u64();
+
         let start_time = sys_get_system_time();
 
-        let array = self.test_read(port_nr, 0, sector_count, id_device);
+        let array = self.test_read(port_nr, 0, sector_count, id_device, single_region_addr);
 
         let end_time = sys_get_system_time();
 
@@ -1337,6 +1343,7 @@ impl AhciController {
                 // problem: ab 860486 wird nur 255 ausgelesen. was stimmt da mit der Platte nicht??
             }
         }
+        frames::free(single_region);
 
         if equal {
             //irgendwie wieder die read sectors herausbekommen und dann mit free arbeiten
@@ -1358,11 +1365,17 @@ impl AhciController {
         //the start sector is random for that:
         //info!("the position is {}", position);
         //start timer:
+        let sector_size = 512;//id_device.bytesPerSector;
+        let read_bytes: u32 = SEKTORGROESSE as u32;
+        let single_region = AhciController::allocate_heap_region(read_bytes);
+        let single_region_addr = single_region.start.start_address().as_u64();
+
         let start_time = sys_get_system_time();
 
-        let array = self.test_read(port_nr, position, 1, id_device);
+        let array = self.test_read(port_nr, position, 1, id_device, single_region_addr);
 
         let end_time = sys_get_system_time();
+        frames::free(single_region);
 
         // because this type of benchmark only gets testet after the sequential one is done, we can assume that the read sectors are correct
         (end_time - start_time) as isize
@@ -1376,7 +1389,11 @@ impl AhciController {
             sector_count, repetitions
         );
         let id_device = self.identify_device(port_nr);
-        let correct_arr = self.test_read(port_nr, 0, sector_count, id_device);
+        let sector_size = 512;//id_device.bytesPerSector;
+        let read_bytes: u32 = SEKTORGROESSE * sector_count;
+        let single_region = AhciController::allocate_heap_region(read_bytes);
+        let single_region_addr = single_region.start.start_address().as_u64();
+        let correct_arr = self.test_read(port_nr, 0, sector_count, id_device, single_region_addr);
 
         let mut full_time_ms = 0;
         let mut amt_success = 0;
@@ -1397,6 +1414,7 @@ impl AhciController {
             "managed to read {} of {} times successfully with a complete time of {} ms",
             amt_success, repetitions, full_time_ms
         );
+        frames::free(single_region);
     }
 
     pub unsafe fn benchmark_random_read(&self, repetitions: u32, port_nr: u32) {
@@ -1440,10 +1458,15 @@ impl AhciController {
         id_device: DeviceInfo,
         port_nr: u32,
     ) -> isize {
+        let sector_size = 512;//id_device.bytesPerSector;
+
+        let read_bytes: u32 = SEKTORGROESSE * sector_count;
+        let single_region = AhciController::allocate_heap_region(read_bytes);
+        let single_region_addr = single_region.start.start_address().as_u64();
         let work_time = self.test_write(port_nr, 0, sector_count, 5, id_device);
         info!("test");
         // test if i read the same sectors, that all of them have the same number
-        let read = self.test_read(port_nr, 0, sector_count, id_device);
+        let read = self.test_read(port_nr, 0, sector_count, id_device, single_region_addr);
         //info!("die länge des arr ist {}", read.len());
         //info!("das array ist: {:?}", read);
         let mut count = 0;
@@ -1466,6 +1489,7 @@ impl AhciController {
         info!("count ist: {} und bad count ist: {}", count, count_bad);
         // reset the sectors to another value
         self.test_write(port_nr, 0, sector_count, 8, id_device);
+        frames::free(single_region);
         if success { work_time } else { -1 }
     }
 
