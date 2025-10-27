@@ -352,7 +352,7 @@ pub fn init() {
     );
     info!("found devices nr: {:?}", found_devices.len());
     info!("achtung vor unwrap");
-    let mut device = found_devices.pop().unwrap();
+    let mut device = found_devices[0];
     info!("achtung nach unwrap");
     unsafe {
         let mut ahci_controller = Arc::new(AhciController::new(device));
@@ -1452,10 +1452,10 @@ impl AhciController {
         for i in 0..read.len() {
             if read[i] != 5 {
                 let sector = i/512;
-                info!(
+                /*info!(
                     "error, das passt nicht: i ist {}, in sektor {}, sollte 5 sein, ist aber {}",
                     i, sector, read[i]
-                );
+                );*/
                 //todo: hier die 16 Byte anschauen
                 success = false;
                 count_bad += 1;
