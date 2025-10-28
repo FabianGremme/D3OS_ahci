@@ -369,7 +369,7 @@ pub fn init() {
             ahci_controller.rebase_port(i);
         }
         ahci_controller.test_identify_all_ports();
-        //ahci_controller.init_all_ports_as_block_devices();
+        ahci_controller.init_all_ports_as_block_devices();
 
         info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
@@ -389,8 +389,8 @@ pub fn init() {
 
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
-        //ahci_controller.benchmark_read(20000, 10, 0);
-        ahci_controller.benchmark_write(10000, 1, 1);
+        //ahci_controller.benchmark_read(9000, 1, 1);
+        ahci_controller.benchmark_write(8000, 10, 1);
 
         // bei 100  16% nicht gelesen
         //bei 1000 wir 2/125 nicht gelesen
@@ -705,7 +705,7 @@ impl AhciController {
         let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
 
         //schreibe 0 in die ganzen Felder
-        pointer.write_bytes(0, allocated.len().try_into().unwrap());
+        //pointer.write_bytes(0, allocated.len().try_into().unwrap());
         allocated
     }
 
@@ -757,8 +757,6 @@ impl AhciController {
         self.read_from_device(portnr, dma_reg_addr, SEKTORGROESSE, command_fis, atapi_cmd);
 
         let mut output = dma_reg_addr as *mut DeviceInfo;
-        info!("free in id device");
-        //frames::free(dma_reg);
         unsafe { output.read() }
     }
 
@@ -915,7 +913,7 @@ impl AhciController {
             if !success {
                 info!("ERR: issueCommand hatte einen Fehler")
             }
-            frames::free(prdt_frames);
+            //frames::free(prdt_frames);
 
             //Some(physical_dma)
         }
@@ -953,11 +951,11 @@ impl AhciController {
         }
         //berechne, wie viele descriptoren benötigt werden
         let mut descriptor_count;
-        info!("byte count ist: {:?}", byte_count);
-        info!("berechne descriptor_count: {:?}", byte_count / 4096);
+        //info!("byte count ist: {:?}", byte_count);
+        //info!("berechne descriptor_count: {:?}", byte_count / 4096);
         let full_amt = byte_count / 4096;
         let rest = byte_count % 4096;
-        info!("full amt is {} and rest ist {}", full_amt, rest);
+        //info!("full amt is {} and rest ist {}", full_amt, rest);
         if rest != 0 {
             descriptor_count = full_amt + 1;
         } else {
@@ -971,10 +969,10 @@ impl AhciController {
             self.create_hba_cmd_table(byte_count, physical_dma, prdt_start_addr, descriptor_count);
         (*cmd_table).commandFis = command_fis.clone();
         (*cmd_table).atapiCommand = atapi_command.clone();
-        info!("die cmd_table sieht so aus: {:?}", cmd_table);
+        //info!("die cmd_table sieht so aus: {:?}", cmd_table);
 
         // hier wird alles in den cmd header geschrieben
-        info!("byte count in write to device ist {}", byte_count);
+        //info!("byte count in write to device ist {}", byte_count);
         let mut physical_region_descriptor_table_length;
         let full_amt = byte_count / 4096;
         let rest = byte_count % 4096;
@@ -996,10 +994,10 @@ impl AhciController {
         let cmd_table_base_addr: u64 = cmd_table as u64;
         let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
         let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
-        info!(
+        /*info!(
             "cmd_table ist {}, die wird in lower {} und upper {} unterteilt",
             cmd_table_base_addr, lower_cmd_table_base_addr, upper_cmd_table_base_addr
-        );
+        );*/
 
         //alles zu dem first zusammenfügen (atapi, cmd_fis_len und prdt_len)
         // atapi ist 0, weil es ein ata Befehl ist
@@ -1010,7 +1008,7 @@ impl AhciController {
             | (write << 4) as u32       //es soll geschrieben werden
             | cmd_fis_len as u32;
         (*first_cmd_header).dword0 = dword0;
-        info!("dword0 write ist {:b}", dword0);
+        //info!("dword0 write ist {:b}", dword0);
 
         (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
         (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
@@ -1020,7 +1018,7 @@ impl AhciController {
             info!("ERR: issueCommand hatte einen Fehler");
             return false;
         }
-        frames::free(prdt_frames);
+        //frames::free(prdt_frames);
         return true;
     }
 
@@ -1117,7 +1115,7 @@ impl AhciController {
         count: usize,
         buffer: &mut [u8],
         portnr: u32,
-        id_device: DeviceInfo,
+        id_device: &DeviceInfo,
     ) -> usize {
         //sector ist der Startsektor
         //count ist die Anzahl der Sektoren
@@ -1144,7 +1142,7 @@ impl AhciController {
 
         // hier müsste noch ein free gemacht werden
         info!("free in read");
-        frames::free(region_buffer);
+        //frames::free(region_buffer);
 
         return count;
     }
@@ -1155,7 +1153,7 @@ impl AhciController {
         count: usize,
         buffer: &[u8],
         portnr: u32,
-        id_device: DeviceInfo,
+        id_device: &DeviceInfo,
     ) -> usize {
         //sector ist der Startsektor
         //count ist die Anzahl der Sektoren
@@ -1186,7 +1184,7 @@ impl AhciController {
 
         //gib den Speicher wieder frei
         info!("free in write");
-        frames::free(region);
+        //frames::free(region);
 
         return count;
     }
@@ -1238,7 +1236,7 @@ impl AhciController {
         portnr: u32,
         start_sector: u64,
         sector_count: u32,
-        id_device: DeviceInfo,
+        id_device: &DeviceInfo,
         region_addr: u64,
     ) -> &mut [u8] {
         if portnr == 0 {
@@ -1259,7 +1257,7 @@ impl AhciController {
         let mut region_ptr = region_addr as *mut u8;
         let array = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
         // hier kein free
-        //frames::free(single_region);
+
         array
     }
 
@@ -1269,7 +1267,7 @@ impl AhciController {
         start_sector: u64,
         sector_count: u32,
         nr_to_write: u8,
-        id_device: DeviceInfo,
+        id_device: &DeviceInfo,
     ) -> isize {
         if portnr == 0 {
             info!("Achtung es wird ins Bootimage geschrieben!");
@@ -1299,7 +1297,7 @@ impl AhciController {
         let end_time = sys_get_system_time();
         let mut write_time = end_time - start_time;
         info!("free in test_write");
-        frames::free(write_region);
+        //frames::free(write_region);
         write_time
     }
 
@@ -1309,7 +1307,7 @@ impl AhciController {
         &self,
         sector_count: u32,
         correct_arr: &[u8],
-        id_device: DeviceInfo,
+        id_device: &DeviceInfo,
         port_nr: u32,
     ) -> isize {
         // test, if the read amt of sectors is correct.
@@ -1318,9 +1316,9 @@ impl AhciController {
 
         //start timer:
 
-        let sector_size = 512;//id_device.bytesPerSector;
+        let sector_size = SEKTORGROESSE;//id_device.bytesPerSector;
 
-        let read_bytes: u32 = SEKTORGROESSE * sector_count;
+        let read_bytes: u32 = sector_size * sector_count;
         let single_region = AhciController::allocate_heap_region(read_bytes);
         let single_region_addr = single_region.start.start_address().as_u64();
 
@@ -1332,25 +1330,25 @@ impl AhciController {
 
         let mut read_time = end_time - start_time;
 
-        //check if the read_sectors are correct
-        //info!("read sectors sind: {:?}", array.len());
+        //irgendwas stimmt hier mit dem array nicht
+        //info!("read sectors sind: {:?}", array);
         let mut equal = true;
         for i in 0..array.len() {
             if array[i] != correct_arr[i] {
-                //info!("array an stelle {} ist {}, und korrect wäre {}",i, array[i], correct_arr[i]);
+                info!("array an stelle {} ist {}, und korrect wäre {}",i, array[i], correct_arr[i]);
                 equal = false;
                 break;
                 // problem: ab 860486 wird nur 255 ausgelesen. was stimmt da mit der Platte nicht??
             }
         }
-        frames::free(single_region);
+        //frames::free(single_region);
 
         if equal {
             //irgendwie wieder die read sectors herausbekommen und dann mit free arbeiten
-            //info!("in benchmark_check_single_read, in if yes");
+            info!("in benchmark_check_single_read, in if yes");
             read_time
         } else {
-            //info!("in benchmark_check_single_read, in if no");
+            info!("in benchmark_check_single_read, in if no");
             -1 as isize
         }
     }
@@ -1358,7 +1356,7 @@ impl AhciController {
     pub unsafe fn benchmark_random_single_read(
         &self,
         position: u64,
-        id_device: DeviceInfo,
+        id_device: &DeviceInfo,
         port_nr: u32,
     ) -> isize {
         //times only during the reading process and returns the time in ms
@@ -1375,7 +1373,7 @@ impl AhciController {
         let array = self.test_read(port_nr, position, 1, id_device, single_region_addr);
 
         let end_time = sys_get_system_time();
-        frames::free(single_region);
+        //frames::free(single_region);
 
         // because this type of benchmark only gets testet after the sequential one is done, we can assume that the read sectors are correct
         (end_time - start_time) as isize
@@ -1390,17 +1388,17 @@ impl AhciController {
         );
         let id_device = self.identify_device(port_nr);
         let sector_size = 512;//id_device.bytesPerSector;
-        let read_bytes: u32 = SEKTORGROESSE * sector_count;
+        let read_bytes: u32 = sector_size * sector_count;
         let single_region = AhciController::allocate_heap_region(read_bytes);
         let single_region_addr = single_region.start.start_address().as_u64();
-        let correct_arr = self.test_read(port_nr, 0, sector_count, id_device, single_region_addr);
+        let correct_arr = self.test_read(port_nr, 0, sector_count, &id_device, single_region_addr);
 
         let mut full_time_ms = 0;
         let mut amt_success = 0;
 
         for i in 0..repetitions {
             let single_result =
-                self.benchmark_check_single_read(sector_count, &correct_arr, id_device, port_nr);
+                self.benchmark_check_single_read(sector_count, &correct_arr, &id_device, port_nr);
             if single_result != -1 {
                 full_time_ms += single_result;
                 amt_success += 1;
@@ -1414,7 +1412,7 @@ impl AhciController {
             "managed to read {} of {} times successfully with a complete time of {} ms",
             amt_success, repetitions, full_time_ms
         );
-        frames::free(single_region);
+        //frames::free(single_region);
     }
 
     pub unsafe fn benchmark_random_read(&self, repetitions: u32, port_nr: u32) {
@@ -1437,7 +1435,7 @@ impl AhciController {
             let max_amt_of_sectors = (id_device.lbaCapacity - 1) as u64;
             let fitting_pos = max_amt_of_sectors & rand_pos;
             //read one sector at the random position
-            let single_result = self.benchmark_random_single_read(fitting_pos, id_device, port_nr);
+            let single_result = self.benchmark_random_single_read(fitting_pos, &id_device, port_nr);
             full_time_ms += single_result;
         }
         info!(
@@ -1455,7 +1453,7 @@ impl AhciController {
     pub unsafe fn benchmark_check_single_write(
         &self,
         sector_count: u32,
-        id_device: DeviceInfo,
+        id_device: &DeviceInfo,
         port_nr: u32,
     ) -> isize {
         let sector_size = 512;//id_device.bytesPerSector;
@@ -1489,14 +1487,14 @@ impl AhciController {
         info!("count ist: {} und bad count ist: {}", count, count_bad);
         // reset the sectors to another value
         self.test_write(port_nr, 0, sector_count, 8, id_device);
-        frames::free(single_region);
+        //frames::free(single_region);
         if success { work_time } else { -1 }
     }
 
     pub unsafe fn benchmark_random_single_write(
         &self,
         start_sector: u64,
-        id_device: DeviceInfo,
+        id_device: &DeviceInfo,
         port_nr: u32,
     ) -> isize {
         let work_time = self.test_write(port_nr, start_sector, 1, 5, id_device);
@@ -1516,7 +1514,7 @@ impl AhciController {
         let mut amt_success = 0;
 
         for i in 0..repetitions {
-            let single_result = self.benchmark_check_single_write(sector_count, id_device, port_nr);
+            let single_result = self.benchmark_check_single_write(sector_count, &id_device, port_nr);
             if single_result != -1 {
                 full_time_ms += single_result;
                 amt_success += 1;
@@ -1552,7 +1550,7 @@ impl AhciController {
             let max_amt_of_sectors = (id_device.lbaCapacity - 1) as u64;
             let fitting_pos = max_amt_of_sectors & rand_pos;
             //read one sector at the random position
-            let single_result = self.benchmark_random_single_write(fitting_pos, id_device, port_nr);
+            let single_result = self.benchmark_random_single_write(fitting_pos, &id_device, port_nr);
             full_time_ms += single_result;
         }
         info!(
@@ -1572,7 +1570,7 @@ impl AhciController {
 impl HbaPort {
     pub fn issueCommand(&mut self, slot: u32) -> bool {
         // Wait while device is busy
-        const COMMAND_TIMEOUT: isize = 10000;
+        const COMMAND_TIMEOUT: isize = 6000;//10000;
         const BUSY: u32 = 128;
         const DATA_TRANSFER_REQUESTED: u32 = 8;
         const TASK_FILE_ERROR: u32 = 1 << 30;
@@ -1602,6 +1600,8 @@ impl HbaPort {
             }
 
             if (sys_get_system_time() >= timeout) {
+                let val = self.commandIssue;
+                info!("commandIssue war zuletzt: {}", val);
                 info!("system timeout 2");
                 return false;
             }
@@ -1632,7 +1632,7 @@ impl BlockDevice for AHCIDrive {
     fn read(&self, sector: u64, count: usize, buffer: &mut [u8]) -> usize {
         unsafe {
             self.controller
-                .read(sector, count, buffer, self.portnr, self.info);
+                .read(sector, count, buffer, self.portnr, &self.info);
             count
         }
     }
@@ -1640,7 +1640,7 @@ impl BlockDevice for AHCIDrive {
     fn write(&self, sector: u64, count: usize, buffer: &[u8]) -> usize {
         unsafe {
             self.controller
-                .write(sector, count, buffer, self.portnr, self.info);
+                .write(sector, count, buffer, self.portnr, &self.info);
             count
         }
     }
