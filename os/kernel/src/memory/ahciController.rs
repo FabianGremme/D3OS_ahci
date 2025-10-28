@@ -389,8 +389,8 @@ pub fn init() {
 
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
-        //ahci_controller.benchmark_read(9000, 1, 1);
-        ahci_controller.benchmark_write(8000, 10, 1);
+        ahci_controller.benchmark_read(40000, 10, 1);
+        //ahci_controller.benchmark_write(80000, 1, 1);
 
         // bei 100  16% nicht gelesen
         //bei 1000 wir 2/125 nicht gelesen
@@ -913,7 +913,7 @@ impl AhciController {
             if !success {
                 info!("ERR: issueCommand hatte einen Fehler")
             }
-            //frames::free(prdt_frames);
+            frames::free(prdt_frames);
 
             //Some(physical_dma)
         }
@@ -1018,7 +1018,7 @@ impl AhciController {
             info!("ERR: issueCommand hatte einen Fehler");
             return false;
         }
-        //frames::free(prdt_frames);
+        frames::free(prdt_frames);
         return true;
     }
 
@@ -1141,8 +1141,8 @@ impl AhciController {
         ptr::copy_nonoverlapping(region_ptr, buffer.as_mut_ptr(), read_bytes as usize);
 
         // hier müsste noch ein free gemacht werden
-        info!("free in read");
-        //frames::free(region_buffer);
+
+        frames::free(region_buffer);
 
         return count;
     }
@@ -1184,7 +1184,7 @@ impl AhciController {
 
         //gib den Speicher wieder frei
         info!("free in write");
-        //frames::free(region);
+        frames::free(region);
 
         return count;
     }
@@ -1297,7 +1297,7 @@ impl AhciController {
         let end_time = sys_get_system_time();
         let mut write_time = end_time - start_time;
         info!("free in test_write");
-        //frames::free(write_region);
+        frames::free(write_region);
         write_time
     }
 
@@ -1341,7 +1341,7 @@ impl AhciController {
                 // problem: ab 860486 wird nur 255 ausgelesen. was stimmt da mit der Platte nicht??
             }
         }
-        //frames::free(single_region);
+        frames::free(single_region);
 
         if equal {
             //irgendwie wieder die read sectors herausbekommen und dann mit free arbeiten
@@ -1373,7 +1373,7 @@ impl AhciController {
         let array = self.test_read(port_nr, position, 1, id_device, single_region_addr);
 
         let end_time = sys_get_system_time();
-        //frames::free(single_region);
+        frames::free(single_region);
 
         // because this type of benchmark only gets testet after the sequential one is done, we can assume that the read sectors are correct
         (end_time - start_time) as isize
@@ -1412,7 +1412,7 @@ impl AhciController {
             "managed to read {} of {} times successfully with a complete time of {} ms",
             amt_success, repetitions, full_time_ms
         );
-        //frames::free(single_region);
+        frames::free(single_region);
     }
 
     pub unsafe fn benchmark_random_read(&self, repetitions: u32, port_nr: u32) {
@@ -1487,7 +1487,7 @@ impl AhciController {
         info!("count ist: {} und bad count ist: {}", count, count_bad);
         // reset the sectors to another value
         self.test_write(port_nr, 0, sector_count, 8, id_device);
-        //frames::free(single_region);
+        frames::free(single_region);
         if success { work_time } else { -1 }
     }
 
