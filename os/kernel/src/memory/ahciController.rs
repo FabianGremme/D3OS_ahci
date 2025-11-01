@@ -985,7 +985,7 @@ impl AhciController {
             descriptor_count = full_amt;
         }
 
-        let mut prdt_frames = frames::alloc((descriptor_count * 10) as usize);
+        let mut prdt_frames = frames::alloc((descriptor_count * 2) as usize);
         let prdt_start_addr = prdt_frames.start.start_address().as_u64();
 
         let mut cmd_table =
