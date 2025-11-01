@@ -389,15 +389,15 @@ pub fn init() {
 
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
-        //ahci_controller.benchmark_read(20000, 2, 1);
+        ahci_controller.benchmark_read(20000, 2, 1);
         //ahci_controller.benchmark_write(90000, 1, 1);
 
         let mut w100k:Vec<isize> = Vec::new();
         //let mut r100k:Vec<isize> = Vec::new();
 
-        for i in 0..100{
+       /*  for i in 0..100{
         //w100k.push(ahci_controller.benchmark_random_read(200, 0));
-           w100k.push(ahci_controller.benchmark_random_write(200, 0));
+           w100k.push(ahci_controller.benchmark_random_read(20480, 0));
            /*  w1m.push(ahci_controller.benchmark_random_read(2048, 0));
             r1m.push(ahci_controller.benchmark_random_write(2048, 0));
             w5m.push(ahci_controller.benchmark_random_read(10240, 0));
@@ -410,11 +410,11 @@ pub fn init() {
             r50m.push(ahci_controller.benchmark_random_write(102400, 0));*/
         }
 
-        //info!("w100k ist {:?}", w100k);
-
-        for value in w100k{
+        info!("w100k ist {:?}", w100k);
+*/
+        /*for value in w100k{
             info!("{:?}", value);
-        }
+        }*/
         // bei 100  16% nicht gelesen
         //bei 1000 wir 2/125 nicht gelesen
         //bei 10000 wird das erste Achtel nicht gelesen
@@ -1637,7 +1637,7 @@ impl HbaPort {
         timeout = sys_get_system_time() + COMMAND_TIMEOUT;
         while true {
             let test = self.sataError;
-            info!("command issue ist bei {:?}", test);
+           //info!("command issue ist bei {:?}", test);
             if ((self.commandIssue & (1 << slot)) == 0) {
                 break;
             }
