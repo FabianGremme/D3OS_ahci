@@ -389,9 +389,32 @@ pub fn init() {
 
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
-        ahci_controller.benchmark_read(20000, 2, 1);
+        //ahci_controller.benchmark_read(20000, 2, 1);
         //ahci_controller.benchmark_write(90000, 1, 1);
 
+        let mut w100k:Vec<isize> = Vec::new();
+        //let mut r100k:Vec<isize> = Vec::new();
+
+        for i in 0..100{
+        //w100k.push(ahci_controller.benchmark_random_read(200, 0));
+           w100k.push(ahci_controller.benchmark_random_write(200, 0));
+           /*  w1m.push(ahci_controller.benchmark_random_read(2048, 0));
+            r1m.push(ahci_controller.benchmark_random_write(2048, 0));
+            w5m.push(ahci_controller.benchmark_random_read(10240, 0));
+            r5m.push(ahci_controller.benchmark_random_write(10240, 0));
+            w10m.push(ahci_controller.benchmark_random_read(20480, 0));
+            r10m.push(ahci_controller.benchmark_random_write(20480, 0));
+            w20m.push(ahci_controller.benchmark_random_read(40960, 0));
+            r20m.push(ahci_controller.benchmark_random_write(40960, 0));
+            w50m.push(ahci_controller.benchmark_random_read(102400, 0));
+            r50m.push(ahci_controller.benchmark_random_write(102400, 0));*/
+        }
+
+        //info!("w100k ist {:?}", w100k);
+
+        for value in w100k{
+            info!("{:?}", value);
+        }
         // bei 100  16% nicht gelesen
         //bei 1000 wir 2/125 nicht gelesen
         //bei 10000 wird das erste Achtel nicht gelesen
@@ -608,20 +631,20 @@ impl AhciController {
     pub unsafe fn check_cap_nr_of_ports(&self) -> u32 {
         let cap = (*(self.hba_regs as *mut HBARegister)).hostCapabilities;
         let nr_of_ports = Self::general_bitlen_reader(cap, 0, 5);
-        info!(
+        /*info!(
             "laut capabilities werden {} Ports unterstützt.",
             nr_of_ports
-        );
+        );*/
         nr_of_ports
     }
 
     pub unsafe fn check_nr_of_command_slots(&self) -> u32 {
         let cap = (*(self.hba_regs as *mut HBARegister)).hostCapabilities;
         let nr_of_cmds = Self::general_bitlen_reader(cap, 8, 5);
-        info!(
+        /*info!(
             "laut capabilities werden {} Command slots unterstützt.",
             nr_of_cmds
-        );
+        );*/
         nr_of_cmds
     }
 
@@ -652,8 +675,8 @@ impl AhciController {
             (*port).commandListBaseAddress = lower_addr;
             (*port).commandListBaseAddressUpper = upper_addr;
             self.start_cmd_engine(port);
-            (*port).sataError = 0x00000000; //0xffffffff;
-            (*port).interruptStatus = 0x00000000; //0xffffffff;
+            (*port).sataError = 0xffffffff;
+            (*port).interruptStatus = 0xffffffff;
             (*port).interruptEnable = 0x00000000;
             info!("rebase of port {} done", port_nr);
         }
@@ -663,10 +686,10 @@ impl AhciController {
     pub unsafe fn find_cmd_slot(&self, mut port: *mut HbaPort) -> i32 {
         let nr_cmd_slots = self.check_nr_of_command_slots();
         let mut slots = (*port).sataActive | (*port).sataError;
-        info!("slots ist {:b}", slots);
+        //info!("slots ist {:b}", slots);
         for i in 0..nr_cmd_slots {
             if (slots & 1) == 0 {
-                info!("slot gefunden an Stelle {}", i);
+               // info!("slot gefunden an Stelle {}", i);
                 return i as i32;
             }
             slots >>= 1;
@@ -696,7 +719,7 @@ impl AhciController {
         let rest = size % 4096;
         //info!("full amt is {} and rest ist {}", full_amt, rest);
         if rest != 0 {
-            info!("needed +1");
+            //info!("needed +1");
             frame_count = full_amt + 1;
         } else {
             frame_count = full_amt;
@@ -784,15 +807,15 @@ impl AhciController {
         let output = pointer as *mut HbaCommandTable;
 
         if descriptor_count == 1 {
-            info!("es reicht ein descriptor");
+            //info!("es reicht ein descriptor");
             //descriptor hängt direkt nach der hba_cmd_table
             let mut descriptor = output.offset(1) as *mut HbaPhysicalRegionDescriptorTableEntry;
             (*descriptor).dataBaseAddress = physical_dma_buffer as u32;
             (*descriptor).dataBaseAddressUpper = (physical_dma_buffer >> 32) as u32;
             (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
-            info!("done");
+            //info!("done");
         } else {
-            info!("descriptor count ist {:?}", descriptor_count);
+            //info!("descriptor count ist {:?}", descriptor_count);
             for i in 0..descriptor_count {
                 let mut descriptor =
                     output.offset((i +1) as isize) as *mut HbaPhysicalRegionDescriptorTableEntry;
@@ -853,11 +876,11 @@ impl AhciController {
             // hier wird nur die command table gemacht, nicht die command list
             //berechne, wie viele descriptoren benötigt werden
             let mut descriptor_count:u32;
-            info!("byte count ist: {:?}", byte_count);
-            info!("berechne descriptor_count: {:?}", byte_count / 4096);
+           // info!("byte count ist: {:?}", byte_count);
+            //info!("berechne descriptor_count: {:?}", byte_count / 4096);
             let full_amt:u32 = byte_count / 4096;
             let rest = byte_count % 4096;
-            info!("full amt is {} and rest ist {}", full_amt, rest);
+          //  info!("full amt is {} and rest ist {}", full_amt, rest);
             if rest != 0 {
                 descriptor_count = full_amt + 1;
             } else {
@@ -875,7 +898,7 @@ impl AhciController {
             (*cmd_table).commandFis = command_fis.clone();
             (*cmd_table).atapiCommand = atapi_command.clone();
 
-            info!("byte count in read to device ist {}", byte_count);
+           // info!("byte count in read to device ist {}", byte_count);
             let mut physical_region_descriptor_table_length;
             let full_amt = byte_count / 4096;
             let rest = byte_count % 4096;
@@ -904,7 +927,7 @@ impl AhciController {
                 | (atapi << 5) as u32
                 | cmd_fis_len as u32;
             (*first_cmd_header).dword0 = dword0;
-            info!("dword0 ist {:b}", dword0);
+           // info!("dword0 ist {:b}", dword0);
 
             (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
             (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
@@ -934,10 +957,10 @@ impl AhciController {
         // weil ich nur bisher einen cmd_header in der Liste habe, kann ich da direkt reinschreiben
         let mut first_cmd_header = Self::get_cmd_table_header(command_list_addr as *mut u8);
         //die command List besteht aus cmd_table_headern, welche selbst dann auf die command Table verweisen
-        info!(
+       /*  info!(
             "first_cmd_header in write to device is {:?}",
             first_cmd_header
-        );
+        );*/
 
         if Self::check_port_usable(port) != true {
             info!("ERR: Port is not usable");
@@ -962,7 +985,7 @@ impl AhciController {
             descriptor_count = full_amt;
         }
 
-        let mut prdt_frames = frames::alloc(descriptor_count as usize);
+        let mut prdt_frames = frames::alloc((descriptor_count * 10) as usize);
         let prdt_start_addr = prdt_frames.start.start_address().as_u64();
 
         let mut cmd_table =
@@ -1034,14 +1057,14 @@ impl AhciController {
         let max_capacity = deviceInfo.lbaCapacity.try_into().unwrap();
         if start_sector + (sector_count as u64) > max_capacity {
             info!("ERR: AHCI trys to read/write out of bounds!");
-            info!(
+          /*   info!(
                 "start sector ist {}, und sector count ist {}",
                 start_sector, sector_count
             );
-            info!("lba capacity ist:{}", max_capacity);
+            info!("lba capacity ist:{}", max_capacity);*/
             return false;
         }
-        info!("start Sector in perform ataio ist: {}", start_sector);
+       // info!("start Sector in perform ataio ist: {}", start_sector);
 
         let mut command_fis = [0u8; 64];
         let mut atapi_cmd = [0u8; 16];
@@ -1183,7 +1206,7 @@ impl AhciController {
         }
 
         //gib den Speicher wieder frei
-        info!("free in write");
+       // info!("free in write");
         frames::free(region);
 
         return count;
@@ -1204,12 +1227,12 @@ impl AhciController {
     // hier beginnen die Benchmarks
 
     unsafe fn test_identify_device_on_port(&self, portnr: u32) {
-        info!("identify device on port {}", portnr);
+      //  info!("identify device on port {}", portnr);
         let id_device = self.identify_device(portnr);
-        info!("id device is {:?}", id_device);
+       // info!("id device is {:?}", id_device);
         let t1 = id_device.words_per_sector;
         let t2 = id_device.lbaCapacity;
-        info!("das Gerät hat {:?} words pro Sektor und {:?} sektoren", t1, t2);
+      //  info!("das Gerät hat {:?} words pro Sektor und {:?} sektoren", t1, t2);
 
         let mut model = id_device.model.clone();
         
@@ -1271,7 +1294,7 @@ impl AhciController {
         return count;
     }
 
-    unsafe fn test_write(
+     unsafe fn test_write(
         &self,
         portnr: u32,
         start_sector: u64,
@@ -1280,7 +1303,7 @@ impl AhciController {
         id_device: &DeviceInfo,
     ) -> isize {
         if portnr == 0 {
-            info!("Achtung es wird ins Bootimage geschrieben!");
+          //  info!("Achtung es wird ins Bootimage geschrieben!");
         }
         let write_bytes: u32 = SEKTORGROESSE * sector_count;
         let write_region = AhciController::allocate_heap_region(write_bytes);
@@ -1303,10 +1326,10 @@ impl AhciController {
             start_sector,
             sector_count,
         );
-        info!("help ist {}", help);
+      //  info!("help ist {}", help);
         let end_time = sys_get_system_time();
         let mut write_time = end_time - start_time;
-        info!("free in test_write");
+       // info!("free in test_write");
         frames::free(write_region);
         write_time
     }
@@ -1430,7 +1453,7 @@ impl AhciController {
         frames::free(single_region);
     }
 
-    pub unsafe fn benchmark_random_read(&self, repetitions: u32, port_nr: u32) {
+    pub unsafe fn benchmark_random_read(&self, repetitions: u32, port_nr: u32) -> isize{
         //repetitions should be a multiple of 10
         // all benchmarks on hdd.img
         info!(
@@ -1461,6 +1484,7 @@ impl AhciController {
             "managed to read with a complete time of {} ms",
             full_time_ms
         );
+        full_time_ms
     }
 
     // after the read benchmarks now the write benchmarks
@@ -1509,6 +1533,7 @@ impl AhciController {
         //self.test_write(port_nr, 0, sector_count, 8, id_device);
         frames::free(single_region);
         if success { work_time } else { -1 }
+        
     }
 
     pub unsafe fn benchmark_random_single_write(
@@ -1519,7 +1544,7 @@ impl AhciController {
     ) -> isize {
         let work_time = self.test_write(port_nr, start_sector, 1, 5, id_device);
         // reset the sectors to another value
-        self.test_write(port_nr, start_sector, 1, 8, id_device);
+        //self.test_write(port_nr, start_sector, 1, 8, id_device);
         work_time
     }
 
@@ -1550,7 +1575,7 @@ impl AhciController {
         );
     }
 
-    pub unsafe fn benchmark_random_write(&self, repetitions: u32, port_nr: u32) {
+    pub unsafe fn benchmark_random_write(&self, repetitions: u32, port_nr: u32) -> isize{
         //repetitions should be a multiple of 10
         // all benchmarks on hdd.img
         info!(
@@ -1581,6 +1606,7 @@ impl AhciController {
             "managed to write with a complete time of {} ms",
             full_time_ms
         );
+        full_time_ms
     }
 
     //second scenario: read and write sectors at random spots
@@ -1610,6 +1636,8 @@ impl HbaPort {
         // Wait for command completion
         timeout = sys_get_system_time() + COMMAND_TIMEOUT;
         while true {
+            let test = self.sataError;
+            info!("command issue ist bei {:?}", test);
             if ((self.commandIssue & (1 << slot)) == 0) {
                 break;
             }
