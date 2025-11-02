@@ -1050,13 +1050,12 @@ impl AhciController {
     pub unsafe fn performAtaIO(
         &self,
         portnr: u32,
-        deviceInfo: &DeviceInfo,
+        max_capacity:u64,
         mode: TransferMode,
         mut buffer_addr: u64,
         start_sector: u64,
         sector_count: u32,
     ) -> bool {
-        let max_capacity = deviceInfo.lbaCapacity.try_into().unwrap();
         if start_sector + (sector_count as u64) > max_capacity {
             info!("ERR: AHCI trys to read/write out of bounds!");
           /*   info!(
@@ -1151,9 +1150,10 @@ impl AhciController {
         let read_bytes: u32 = SEKTORGROESSE * count as u32;
         let region_buffer = AhciController::allocate_heap_region(read_bytes);
         let region_buffer_addr = region_buffer.start.start_address().as_u64();
+        let max_capacity = id_device.lbaCapacity.try_into().unwrap();
         self.performAtaIO(
             portnr,
-            &id_device,
+            max_capacity,
             TransferMode::READ,
             region_buffer_addr,
             sector,
@@ -1193,11 +1193,12 @@ impl AhciController {
         //kopiere den Buffer in die Region
         let mut region_ptr = region_addr as *mut u8;
         ptr::copy_nonoverlapping(buffer.as_ptr(), region_ptr, read_bytes as usize);
+        let max_capacity = id_device.lbaCapacity.try_into().unwrap();
 
         // reiche alles an ataIO weiter
         let success = self.performAtaIO(
             portnr,
-            &id_device,
+            max_capacity,
             TransferMode::WRITE,
             region_addr,
             sector,
@@ -1273,9 +1274,10 @@ impl AhciController {
         let read_bytes: u32 = SEKTORGROESSE * count as u32;
         let region_buffer = AhciController::allocate_heap_region(read_bytes);
         let region_buffer_addr = region_buffer.start.start_address().as_u64();
+        let max_capacity = id_device.lbaCapacity.try_into().unwrap();
         self.performAtaIO(
             portnr,
-            &id_device,
+            max_capacity,
             TransferMode::READ,
             region_buffer_addr,
             sector,
@@ -1317,12 +1319,13 @@ impl AhciController {
         for i in 0..write_sl.len() {
             write_sl[i] = nr_to_write;
         }
+        let max_capacity = id_device.lbaCapacity.try_into().unwrap();
         //schreibe das array an die Stelle in den Speicher:
         //starte den Timer
         let start_time = sys_get_system_time();
         let help = self.performAtaIO(
             portnr,
-            &id_device,
+            max_capacity,
             TransferMode::WRITE,
             write_region_addr,
             start_sector,
