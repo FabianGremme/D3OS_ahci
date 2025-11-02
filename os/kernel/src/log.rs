@@ -149,7 +149,7 @@ impl Logger {
         self.queue.call_once(|| {
             debug!("allocating log buffer");
             // fill the buffer with a fixed size of fixed-size strings
-            const MESSAGE_LENGTH: usize = 40960;
+            const MESSAGE_LENGTH: usize = 4096;
             let recycle = WithCapacity::new().with_min_capacity(MESSAGE_LENGTH);
             const BUFFER_SIZE: usize = 32;
             let buf = ThingBuf::with_recycle(BUFFER_SIZE, recycle);

@@ -389,10 +389,12 @@ pub fn init() {
 
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
-        ahci_controller.benchmark_read(20000, 2, 1);
-        //ahci_controller.benchmark_write(90000, 1, 1);
 
-        let mut w100k:Vec<isize> = Vec::new();
+        //4096 *2 läuft
+        //ahci_controller.benchmark_read(4096*3, 1, 1);
+        ahci_controller.benchmark_write(4096*12, 1, 1);
+
+        //let mut w100k:Vec<isize> = Vec::new();
         //let mut r100k:Vec<isize> = Vec::new();
 
        /*  for i in 0..100{
@@ -724,7 +726,7 @@ impl AhciController {
         } else {
             frame_count = full_amt;
         }
-        //info!("try to allocate {} fames", frame_count);
+        info!("try to allocate {} fames", frame_count);
         let mut allocated = frames::alloc(frame_count as usize);
         let pointer: *mut u8 = allocated.start.start_address().as_u64() as *mut u8;
 
@@ -985,7 +987,7 @@ impl AhciController {
             descriptor_count = full_amt;
         }
 
-        let mut prdt_frames = frames::alloc((descriptor_count * 2) as usize);
+        let mut prdt_frames = frames::alloc((descriptor_count ) as usize);
         let prdt_start_addr = prdt_frames.start.start_address().as_u64();
 
         let mut cmd_table =
@@ -1099,7 +1101,6 @@ impl AhciController {
                 let src = &host_to_device_fis as *const FisRegisterHostToDevice as *const u8;
                 ptr::copy_nonoverlapping(src, ptr, size_of::<FisRegisterHostToDevice>());
             }
-
             self.read_from_device(
                 portnr,
                 buffer_addr,
@@ -1109,6 +1110,7 @@ impl AhciController {
             );
         } else {
             host_to_device_fis.command = WRITE_DMA_EX;
+
             //copy the struct to the array
             unsafe {
                 let ptr = command_fis.as_mut_ptr();
@@ -1425,9 +1427,9 @@ impl AhciController {
         let sector_size = 512;//id_device.bytesPerSector;
         let read_bytes: u32 = sector_size * sector_count;
         let single_region = AhciController::allocate_heap_region(read_bytes);
+        info!("alloziiere einen buffer von {} bytes",read_bytes );
         let single_region_ptr = single_region.start.start_address().as_u64() as *mut u8;
         let buffer = core::slice::from_raw_parts_mut(single_region_ptr, read_bytes as usize);
-
 
         let correct_read_bytes = self.test_read(0, sector_count as usize, buffer, port_nr, &id_device);
 
@@ -1495,19 +1497,18 @@ impl AhciController {
         id_device: &DeviceInfo,
         port_nr: u32,
     ) -> isize {
-        let sector_size = 512;//id_device.bytesPerSector;
-
-        let read_bytes: u32 = SEKTORGROESSE * sector_count;
-        let single_region = AhciController::allocate_heap_region(read_bytes);
-        let single_region_addr = single_region.start.start_address().as_u64();
+        // schreibe in die Sektoren
         let work_time = self.test_write(port_nr, 0, sector_count, 5, id_device);
-        info!("test");
 
-        let read_bytes: u32 = sector_size * sector_count;
-        let single_region = AhciController::allocate_heap_region(read_bytes);
-        let single_region_ptr = single_region.start.start_address().as_u64() as *mut u8;
+        // bereite den Buffer fürs Lesen vor
+        let sector_size = 512;//id_device.bytesPerSector;
+        let read_bytes: u32 = SEKTORGROESSE * sector_count;
+        let single_region2 = AhciController::allocate_heap_region(read_bytes);
+        let single_region_ptr = single_region2.start.start_address().as_u64() as *mut u8;
         let buffer = core::slice::from_raw_parts_mut(single_region_ptr, read_bytes as usize);
-        // test if i read the same sectors, that all of them have the same number
+
+
+        //lese aus den Sektoren, in die gerade geschrieben werden sollte
         let read = self.test_read(0, sector_count as usize, buffer, port_nr, id_device);
         //info!("die länge des arr ist {}", read.len());
         //info!("das array ist: {:?}", read);
@@ -1531,7 +1532,7 @@ impl AhciController {
         info!("count ist: {} und bad count ist: {}", count, count_bad);
         // reset the sectors to another value
         //self.test_write(port_nr, 0, sector_count, 8, id_device);
-        frames::free(single_region);
+        frames::free(single_region2);
         if success { work_time } else { -1 }
         
     }
@@ -1648,7 +1649,7 @@ impl HbaPort {
             }
 
             if (sys_get_system_time() >= timeout) {
-                let val = self.commandIssue;
+                let val = self.sataError;
                 info!("commandIssue war zuletzt: {}", val);
                 info!("system timeout 2");
                 return false;
