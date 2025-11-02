@@ -368,7 +368,7 @@ pub fn init() {
         for i in 0..amt_ports {
             ahci_controller.rebase_port(i);
         }
-        ahci_controller.test_identify_all_ports();
+        /*ahci_controller.test_identify_all_ports();
         ahci_controller.init_all_ports_as_block_devices();
 
         info!("check if ports have ata");
@@ -380,9 +380,18 @@ pub fn init() {
         info!("check if 64 bit addresses are supported");
         ahci_controller.check_64_bit_addr_supported();
         info!("check nr of available command slots");
-        ahci_controller.check_nr_of_command_slots();
+        ahci_controller.check_nr_of_command_slots();*/
 
         // hier wird in den Speicher geschrieben/ gelesen
+
+
+
+
+        let id_device1 = ahci_controller.identify_device(1);
+        info!("id device ist {:?}", &id_device1);
+        ahci_controller.test_write(1, 0, 1024*5, 5, &id_device1);
+
+
 
         //ahci_controller.test_read(1, 1);
         //ahci_controller.test_write(1, 1);
@@ -392,7 +401,7 @@ pub fn init() {
 
         //4096 *2 läuft
         //ahci_controller.benchmark_read(4096*3, 1, 1);
-        ahci_controller.benchmark_write(4096*12, 1, 1);
+        //ahci_controller.benchmark_write(4096*12, 1, 1);
 
         //let mut w100k:Vec<isize> = Vec::new();
         //let mut r100k:Vec<isize> = Vec::new();
