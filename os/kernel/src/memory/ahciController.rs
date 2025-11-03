@@ -14,6 +14,7 @@ use alloc::string::String;
 use alloc::sync::Arc;
 use alloc::vec;
 use alloc::vec::Vec;
+use x86_64::instructions::port;
 use core::any::Any;
 use core::ptr;
 use core::ptr::{addr_of_mut, null};
@@ -384,17 +385,38 @@ pub fn init() {
 
         // hier wird in den Speicher geschrieben/ gelesen
 
+        let portnr = 0;
+        let sector_count = 1024*8;
 
-
-
-        let id_device1 = ahci_controller.identify_device(1);
+        let id_device1 = ahci_controller.identify_device(portnr);
         info!("id device ist {:?}", &id_device1);
-        ahci_controller.test_write(1, 0, 1024*5, 5, &id_device1);
+        ahci_controller.test_write(portnr, 0, sector_count, 5, &id_device1);
+
+
+        //läuft mit 5
+        //läuft nicht mit 10
+        //läuft bei 8, die Stelle 400000 wird noch nicht geschrieben
+        //läuft nicht mehr bei 9, was ist mit der Stelle los
+        info!("Experiment read");
+
+        //Experiment für test_read
+        let read_bytes: u32 = 512 * sector_count;
+        let single_region = AhciController::allocate_heap_region(read_bytes);
+        let single_region_ptr = single_region.start.start_address().as_u64() as *mut u8;
+        let buffer = core::slice::from_raw_parts_mut(single_region_ptr, read_bytes as usize);
+        let correct_read_bytes = ahci_controller.test_read(0, sector_count as usize, buffer, portnr, &id_device1);
+
+        for i in 0..buffer.len(){
+            if buffer[i] != 5{
+                info!("gelesen wurde: {}, an Stelle {}", &buffer[i], i);
+                break;
+            }
+            
+        }
+        
 
 
 
-        //ahci_controller.test_read(1, 1);
-        //ahci_controller.test_write(1, 1);
 
         //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
