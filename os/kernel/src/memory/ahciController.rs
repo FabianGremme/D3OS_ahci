@@ -385,18 +385,12 @@ pub fn init() {
 
         // hier wird in den Speicher geschrieben/ gelesen
 
-        let portnr = 0;
-        let sector_count = 1024*8;
-
+        let portnr = 1;
+        let test_add = 0;
+        let sector_count = 1024*8 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
-        info!("id device ist {:?}", &id_device1);
-        ahci_controller.test_write(portnr, 0, sector_count, 5, &id_device1);
 
 
-        //läuft mit 5
-        //läuft nicht mit 10
-        //läuft bei 8, die Stelle 400000 wird noch nicht geschrieben
-        //läuft nicht mehr bei 9, was ist mit der Stelle los
         info!("Experiment read");
 
         //Experiment für test_read
@@ -405,14 +399,27 @@ pub fn init() {
         let single_region_ptr = single_region.start.start_address().as_u64() as *mut u8;
         let buffer = core::slice::from_raw_parts_mut(single_region_ptr, read_bytes as usize);
         let correct_read_bytes = ahci_controller.test_read(0, sector_count as usize, buffer, portnr, &id_device1);
-
+        let mut success = true;
         for i in 0..buffer.len(){
             if buffer[i] != 5{
                 info!("gelesen wurde: {}, an Stelle {}", &buffer[i], i);
+                success = false;
                 break;
-            }
-            
+            }            
         }
+        info!("das lesen war {}", success);
+
+        info!("teste write");
+        
+        //info!("id device ist {:?}", &id_device1);
+        ahci_controller.test_write(portnr, 0, sector_count, 5, &id_device1);
+
+
+        //läuft mit 5
+        //läuft nicht mit 10
+        //läuft bei 8, die Stelle 400000 wird noch nicht geschrieben
+        //läuft nicht mehr bei 9, was ist mit der Stelle los
+        
         
 
 
@@ -1674,6 +1681,7 @@ impl HbaPort {
             let test = self.sataError;
            //info!("command issue ist bei {:?}", test);
             if ((self.commandIssue & (1 << slot)) == 0) {
+                info!("issue command success");
                 break;
             }
 
