@@ -385,7 +385,7 @@ pub fn init() {
 
         // hier wird in den Speicher geschrieben/ gelesen
 
-        let portnr = 1;
+        let portnr = 0;
         let test_add = 0;
         let sector_count = 1024 * 16 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
