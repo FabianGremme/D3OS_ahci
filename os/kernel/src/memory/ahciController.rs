@@ -385,9 +385,9 @@ pub fn init() {
 
         // hier wird in den Speicher geschrieben/ gelesen
 
-        let portnr = 0;
+        let portnr = 1;
         let test_add = 0;
-        let sector_count = 1024 * 16 + test_add;
+        let sector_count = 1024 * 9 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
 
         info!("teste write");
@@ -991,9 +991,13 @@ impl AhciController {
         let mut command_list_addr = (*port).commandListBaseAddress as u64
             | (((*port).commandListBaseAddressUpper as u64) << 32);
 
+        let check_cmd1 = (*port).command;
+        info!("check_cmd1 ist {:?}", check_cmd1);
+
         // weil ich nur bisher einen cmd_header in der Liste habe, kann ich da direkt reinschreiben
         let mut first_cmd_header = Self::get_cmd_table_header(command_list_addr as *mut u8);
         //die command List besteht aus cmd_table_headern, welche selbst dann auf die command Table verweisen
+        
         /*  info!(
             "first_cmd_header in write to device is {:?}",
             first_cmd_header
@@ -1073,6 +1077,10 @@ impl AhciController {
         (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
         (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
         (*first_cmd_header).physicalRegionDescriptorByteCount = byte_count;
+
+        let check_cmd = (*port).command;
+        info!("check_cmd ist {:?}", check_cmd);
+
 
         let success = (*port).issueCommand(slot as u32);
         if !success {
@@ -1158,7 +1166,7 @@ impl AhciController {
             let buffer_size = sector_count * 512; //(deviceInfo.bytesPerSector as u32);
 
             //hier wird in den Buffer geschrieben
-
+            info!("command fis ist {:?}", command_fis);
             let success =
                 self.write_to_device(portnr, buffer_addr, buffer_size, command_fis, atapi_cmd);
             // todo hier könnten noch allocs gelöscht werden, kommt erst im cleanup
