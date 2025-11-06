@@ -386,9 +386,9 @@ pub fn init() {
 
         // hier wird in den Speicher geschrieben/ gelesen
 
-       /* let portnr = 1;
+        /*let portnr = 1;
         let test_add = 0;
-        let sector_count = 1024 * 64 + test_add;
+        let sector_count = 1024 * 85 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
 
         info!("teste write");
@@ -419,17 +419,11 @@ pub fn init() {
             success, bad_counter
         );*/
 
-        //läuft mit 5
-        //läuft nicht mit 10
-        //läuft bei 8, die Stelle 400000 wird noch nicht geschrieben
-        //läuft nicht mehr bei 9, was ist mit der Stelle los
-
-        //läuft:
         //ahci_controller.benchmark_random_read(1000, 1);
 
-        //4096 *2 läuft
-        ahci_controller.benchmark_read(1024*69, 1, 0);
-        //ahci_controller.benchmark_write(1, 10, 1);
+        //läuft bis 1024 * 86
+        //ahci_controller.benchmark_read(1024*86, 1, 1);
+        //ahci_controller.benchmark_write(1, 1, 1);
 
         //let mut w100k:Vec<isize> = Vec::new();
         //let mut r100k:Vec<isize> = Vec::new();
@@ -1219,7 +1213,7 @@ impl AhciController {
 
             let mut sector_count = remaining;
 
-            if sector_count > SEKTORZAHL{
+            if sector_count > SEKTORZAHL {
                 sector_count = SEKTORZAHL;
             }
 
@@ -1237,15 +1231,17 @@ impl AhciController {
             );
 
             let mut region_ptr = region_buffer.start.start_address().as_u64() as *mut u8;
-            ptr::copy_nonoverlapping(region_ptr, buffer.as_mut_ptr().offset((i * SEKTORZAHL) as isize), read_bytes as usize);
+            ptr::copy_nonoverlapping(
+                region_ptr,
+                buffer.as_mut_ptr().offset((i * SEKTORZAHL) as isize),
+                read_bytes as usize,
+            );
 
             // hier müsste noch ein free gemacht werden
 
             frames::free(region_buffer);
-
         }
         return count;
-
     }
 
     unsafe fn write(
@@ -1334,7 +1330,7 @@ impl AhciController {
 
     unsafe fn test_read(
         &self,
-        sector: u64,
+        start_sector: u64,
         count: usize,
         buffer: &mut [u8],
         portnr: u32,
@@ -1363,7 +1359,7 @@ impl AhciController {
 
             let mut sector_count = remaining;
 
-            if sector_count > SEKTORZAHL{
+            if sector_count > SEKTORZAHL {
                 sector_count = SEKTORZAHL;
             }
 
@@ -1376,17 +1372,20 @@ impl AhciController {
                 max_capacity,
                 TransferMode::READ,
                 region_buffer_addr,
-                (i * SEKTORZAHL) as u64,
+                start_sector + (i * SEKTORZAHL) as u64,
                 sector_count as u32,
             );
 
             let mut region_ptr = region_buffer.start.start_address().as_u64() as *mut u8;
-            ptr::copy_nonoverlapping(region_ptr, buffer.as_mut_ptr().offset((i * SEKTORZAHL) as isize), read_bytes as usize);
+            ptr::copy_nonoverlapping(
+                region_ptr,
+                buffer.as_mut_ptr().offset((i * SEKTORZAHL) as isize),
+                read_bytes as usize,
+            );
 
             // hier müsste noch ein free gemacht werden
 
             frames::free(region_buffer);
-
         }
         return count;
     }
@@ -1395,39 +1394,63 @@ impl AhciController {
         &self,
         portnr: u32,
         start_sector: u64,
-        sector_count: u32,
+        count: usize,
         nr_to_write: u8,
         id_device: &DeviceInfo,
     ) -> isize {
         if portnr == 0 {
             //  info!("Achtung es wird ins Bootimage geschrieben!");
         }
-        let write_bytes: u64 = (SEKTORGROESSE * sector_count) as u64;
-        let write_region = AhciController::allocate_heap_region(write_bytes);
-        let write_region_addr = write_region.start.start_address().as_u64();
-        //wandel den buffer zum slice um
-        let mut write_region_ptr = write_region_addr as *mut u8;
-        let mut write_sl = core::slice::from_raw_parts_mut(write_region_ptr, write_bytes as usize);
-        //schreibe in den slice:
-        for i in 0..write_sl.len() {
-            write_sl[i] = nr_to_write;
+
+        let mut write_reps = count / SEKTORZAHL;
+        let write_rest = count % SEKTORZAHL;
+
+        if write_rest != 0 {
+            write_reps = write_reps + 1;
         }
-        let max_capacity = id_device.lbaCapacity.try_into().unwrap();
-        //schreibe das array an die Stelle in den Speicher:
-        //starte den Timer
-        let start_time = sys_get_system_time();
-        let help = self.performAtaIO(
-            portnr,
-            max_capacity,
-            TransferMode::WRITE,
-            write_region_addr,
-            start_sector,
-            sector_count,
-        );
-        //  info!("help ist {}", help);
-        let end_time = sys_get_system_time();
-        let mut write_time = end_time - start_time;
-        frames::free(write_region);
+        let mut write_time: isize = 0;
+        for i in 0..write_reps {
+            let mut sector_size = id_device.bytesPerSector;
+            if sector_size == 0 {
+                sector_size = 512;
+            }
+            let remaining = count - i * SEKTORZAHL;
+
+            let mut sector_count = remaining;
+
+            if sector_count > SEKTORZAHL {
+                sector_count = SEKTORZAHL;
+            }
+
+            let write_bytes: u64 = (sector_size as usize * SEKTORZAHL) as u64;
+            let write_region = AhciController::allocate_heap_region(write_bytes);
+            let write_region_addr = write_region.start.start_address().as_u64();
+            //wandel den buffer zum slice um
+            let mut write_region_ptr = write_region_addr as *mut u8;
+            let mut write_sl =
+                core::slice::from_raw_parts_mut(write_region_ptr, write_bytes as usize);
+            //schreibe in den slice:
+            for i in 0..write_sl.len() {
+                write_sl[i] = nr_to_write;
+            }
+            let max_capacity = id_device.lbaCapacity.try_into().unwrap();
+            //schreibe das array an die Stelle in den Speicher:
+            //starte den Timer
+            let start_time = sys_get_system_time();
+            let help = self.performAtaIO(
+                portnr,
+                max_capacity,
+                TransferMode::WRITE,
+                write_region_addr,
+                start_sector + (i * SEKTORZAHL) as u64,
+                sector_count as u32,
+            );
+            //  info!("help ist {}", help);
+            let end_time = sys_get_system_time();
+            write_time = write_time + (end_time - start_time);
+            frames::free(write_region);
+        }
+
         write_time
     }
 
@@ -1592,7 +1615,7 @@ impl AhciController {
 
     pub unsafe fn benchmark_check_single_write(
         &self,
-        sector_count: u32,
+        sector_count: usize,
         id_device: &DeviceInfo,
         port_nr: u32,
     ) -> isize {
@@ -1601,7 +1624,7 @@ impl AhciController {
 
         // bereite den Buffer fürs Lesen vor
         let sector_size = 512; //id_device.bytesPerSector;
-        let read_bytes: u64 = (SEKTORGROESSE * sector_count) as u64;
+        let read_bytes: u64 = (SEKTORGROESSE * sector_count as u32) as u64;
         let single_region2 = AhciController::allocate_heap_region(read_bytes);
         let single_region_ptr = single_region2.start.start_address().as_u64() as *mut u8;
         let buffer = core::slice::from_raw_parts_mut(single_region_ptr, read_bytes as usize);
@@ -1646,7 +1669,7 @@ impl AhciController {
         work_time
     }
 
-    pub unsafe fn benchmark_write(&self, sector_count: u32, repetitions: u32, port_nr: u32) {
+    pub unsafe fn benchmark_write(&self, sector_count: usize, repetitions: u32, port_nr: u32) {
         // always start at the first sector on the hdd.img
         info!(
             "start write benchmark, with {} sectors in a sequence and {} repetitions",
