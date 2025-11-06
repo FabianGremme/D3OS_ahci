@@ -388,7 +388,7 @@ pub fn init() {
 
         let portnr = 1;
         let test_add = 1;
-        let sector_count = 512 + test_add;
+        let sector_count = 1024*8 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
 
         //info!("teste benchmark, check single write");
@@ -402,6 +402,7 @@ pub fn init() {
 
         //Experiment für test_read
         let read_bytes: u64 = (512 * sector_count) as u64;
+        info!("read_bytes sind: {}", read_bytes);
         let single_region = AhciController::allocate_heap_region(read_bytes);
         let single_region_ptr = single_region.start.start_address().as_u64() as *mut u8;
         let buffer = core::slice::from_raw_parts_mut(single_region_ptr, read_bytes as usize);
@@ -411,9 +412,10 @@ pub fn init() {
         let mut bad_counter = 0;
         for i in 0..buffer.len() {
             if buffer[i] != 5 {
-                //sinfo!("gelesen wurde: {}, an Stelle {}", &buffer[i], i);
+                info!("gelesen wurde: {}, an Stelle {}", &buffer[i], i);
                 success = false;
                 bad_counter += 1;
+                break;
             }
         }
         info!(
@@ -424,8 +426,9 @@ pub fn init() {
         //ahci_controller.benchmark_random_read(1000, 1);
 
         //läuft bis 1024 * 86
-        //ahci_controller.benchmark_read(1024*86, 1, 1);
-        //ahci_controller.benchmark_write(1, 1, 1);
+        //ahci_controller.benchmark_read(1024*85, 1, 1);
+        //ahci_controller.benchmark_write(1024 * 10, 1, 1);
+
 
         //ahci_controller.benchmark_random_read(5, 1);
         //ahci_controller.benchmark_random_write(5, 1);
@@ -1354,13 +1357,14 @@ impl AhciController {
         }
 
         info!("read reps ist: {}", read_reps);
+        let mut current_offset = 0;
 
         for i in 0..read_reps {
             let mut sector_size = id_device.bytesPerSector;
             if sector_size == 0 {
                 sector_size = 512;
             }
-            let remaining = count - i * SEKTORZAHL;
+            let remaining = count - (i * SEKTORZAHL);
 
             let mut sector_count = remaining;
 
@@ -1368,7 +1372,8 @@ impl AhciController {
                 sector_count = SEKTORZAHL;
             }
 
-            let read_bytes: u64 = (sector_size as u32 * sector_count as u32) as u64;
+            let read_bytes: u64 = (sector_size as usize * sector_count) as u64;
+            info!("alloc from test_read, mit sector count {}", sector_count);
             let region_buffer = AhciController::allocate_heap_region(read_bytes);
             let region_buffer_addr = region_buffer.start.start_address().as_u64();
             let max_capacity = id_device.lbaCapacity.try_into().unwrap();
@@ -1382,13 +1387,22 @@ impl AhciController {
             );
 
             let mut region_ptr = region_buffer_addr as *mut u8;
+            let mybuffer = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
+            for i in 0..mybuffer.len(){
+                if mybuffer[i] != 5{
+                    info!("Es scheitert schon in den test read!!");
+                    break;
+                }
+            }
 
-            let buffer_pos = buffer.as_mut_ptr().offset((i * SEKTORZAHL) as isize);
+            let buffer_pos = buffer.as_mut_ptr().offset(current_offset );
             ptr::copy_nonoverlapping(
                 region_ptr,
                 buffer_pos,
                 read_bytes as usize,
             );
+
+            current_offset = current_offset + read_bytes as isize;
 
             // hier müsste noch ein free gemacht werden
 
@@ -1421,7 +1435,7 @@ impl AhciController {
             if sector_size == 0 {
                 sector_size = 512;
             }
-            let remaining = count - i * SEKTORZAHL;
+            let remaining = count - (i * SEKTORZAHL);
 
             let mut sector_count = remaining;
 
@@ -1429,7 +1443,8 @@ impl AhciController {
                 sector_count = SEKTORZAHL;
             }
 
-            let write_bytes: u64 = (sector_size as usize * SEKTORZAHL) as u64;
+            let write_bytes: u64 = (sector_size as usize * sector_count) as u64;
+            info!("alloc from test_write");
             let write_region = AhciController::allocate_heap_region(write_bytes);
             let write_region_addr = write_region.start.start_address().as_u64();
             //wandel den buffer zum slice um
@@ -1652,13 +1667,15 @@ impl AhciController {
                 //todo: hier die 16 Byte anschauen
                 success = false;
                 count_bad += 1;
+                info!("achtung: buffer ist falsch mit: {:?}", buffer[i]);
+                break;;
             } else {
                 count += 1;
             }
         }
         info!("count ist: {} und bad count ist: {}", count, count_bad);
         // reset the sectors to another value
-        //self.test_write(port_nr, 0, sector_count, 8, id_device);
+        self.test_write(port_nr, 0, sector_count, 8, &id_device);
         frames::free(single_region);
         if success { work_time } else { -1 }
     }
