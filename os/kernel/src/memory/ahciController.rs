@@ -369,7 +369,7 @@ pub fn init() {
         for i in 0..amt_ports {
             ahci_controller.rebase_port(i);
         }
-        /*ahci_controller.test_identify_all_ports();
+        ahci_controller.test_identify_all_ports();
         ahci_controller.init_all_ports_as_block_devices();
 
         info!("check if ports have ata");
@@ -381,11 +381,11 @@ pub fn init() {
         info!("check if 64 bit addresses are supported");
         ahci_controller.check_64_bit_addr_supported();
         info!("check nr of available command slots");
-        ahci_controller.check_nr_of_command_slots();*/
+        ahci_controller.check_nr_of_command_slots();
 
         // hier wird in den Speicher geschrieben/ gelesen
 
-        let portnr = 1;
+        /*let portnr = 1;
         let test_add = 0;
         let sector_count = 1024 * 8 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
@@ -416,7 +416,7 @@ pub fn init() {
         info!(
             "das lesen war {}, mit {} Bytes die nicht 5 waren",
             success, bad_counter
-        );
+        );*/
 
         //läuft mit 5
         //läuft nicht mit 10
@@ -427,8 +427,8 @@ pub fn init() {
         //ahci_controller.benchmark_random_read(1000, 1);
 
         //4096 *2 läuft
-        //ahci_controller.benchmark_read(4096*3, 1, 1);
-        //ahci_controller.benchmark_write(4096*12, 1, 1);
+        ahci_controller.benchmark_read(1, 10, 1);
+        ahci_controller.benchmark_write(1, 10, 1);
 
         //let mut w100k:Vec<isize> = Vec::new();
         //let mut r100k:Vec<isize> = Vec::new();
@@ -925,7 +925,9 @@ impl AhciController {
             } else {
                 descriptor_count = full_amt;
             }
-            let mut prdt_frames = frames::alloc((descriptor_count) as usize);
+
+            let descriptors_per_page = 4096 / size_of::<HbaPhysicalRegionDescriptorTableEntry>();
+            let prdt_frames = frames::alloc(((descriptor_count/ descriptors_per_page as u32 ) +1) as usize);
             let prdt_start_addr = prdt_frames.start.start_address().as_u64();
 
             let mut cmd_table = self.create_hba_cmd_table(
@@ -1034,7 +1036,7 @@ impl AhciController {
 
         let descriptors_per_page = 4096 / size_of::<HbaPhysicalRegionDescriptorTableEntry>();
 
-        let mut prdt_frames = frames::alloc(((descriptor_count / descriptors_per_page as u32) + 1) as usize);
+        let prdt_frames = frames::alloc(((descriptor_count / descriptors_per_page as u32) + 1) as usize);
         let prdt_start_addr = prdt_frames.start.start_address().as_u64();
 
         let mut cmd_table =
@@ -1261,7 +1263,6 @@ impl AhciController {
         }
 
         //gib den Speicher wieder frei
-        // info!("free in write");
         frames::free(region);
 
         return count;
@@ -1343,9 +1344,9 @@ impl AhciController {
         let mut region_ptr = region_buffer.start.start_address().as_u64() as *mut u8;
         ptr::copy_nonoverlapping(region_ptr, buffer.as_mut_ptr(), buffer.len() as usize);
 
-        // hier müsste noch ein free gemacht werden
 
-        //frames::free(region_buffer);
+
+        frames::free(region_buffer);
 
         return count;
     }
@@ -1386,8 +1387,7 @@ impl AhciController {
         //  info!("help ist {}", help);
         let end_time = sys_get_system_time();
         let mut write_time = end_time - start_time;
-        // info!("free in test_write");
-        //frames::free(write_region);
+        frames::free(write_region);
         write_time
     }
 
