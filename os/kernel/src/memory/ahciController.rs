@@ -386,7 +386,7 @@ pub fn init() {
         // hier wird in den Speicher geschrieben/ gelesen
 
         let portnr = 1;
-        let test_add = 1;
+        let test_add = 0;
         let sector_count = 1024 * 8 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
 
@@ -1032,7 +1032,9 @@ impl AhciController {
             descriptor_count = full_amt;
         }
 
-        let mut prdt_frames = frames::alloc((descriptor_count) as usize);
+        let descriptors_per_page = 4096 / size_of::<HbaPhysicalRegionDescriptorTableEntry>();
+
+        let mut prdt_frames = frames::alloc(((descriptor_count / descriptors_per_page as u32) + 1) as usize);
         let prdt_start_addr = prdt_frames.start.start_address().as_u64();
 
         let mut cmd_table =
