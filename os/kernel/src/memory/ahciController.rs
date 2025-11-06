@@ -427,8 +427,8 @@ pub fn init() {
         //ahci_controller.benchmark_random_read(1000, 1);
 
         //4096 *2 läuft
-        ahci_controller.benchmark_read(1, 10, 0);
-        ahci_controller.benchmark_write(1, 10, 0);
+        //ahci_controller.benchmark_read(1, 10, 0);
+        ahci_controller.benchmark_write(1, 10, 1);
 
         //let mut w100k:Vec<isize> = Vec::new();
         //let mut r100k:Vec<isize> = Vec::new();
