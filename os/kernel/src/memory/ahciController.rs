@@ -386,13 +386,13 @@ pub fn init() {
         // hier wird in den Speicher geschrieben/ gelesen
 
         let portnr = 1;
-        let test_add = 0;
-        let sector_count = 1024 * 9 + test_add;
+        let test_add = 1;
+        let sector_count = 1024 * 8 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
 
         info!("teste write");
 
-        //info!("id device ist {:?}", &id_device1);
+        info!("id device ist {:?}", &id_device1);
         ahci_controller.test_write(portnr, 0, sector_count, 5, &id_device1);
 
         info!("Experiment read");
@@ -411,10 +411,12 @@ pub fn init() {
                 //sinfo!("gelesen wurde: {}, an Stelle {}", &buffer[i], i);
                 success = false;
                 bad_counter += 1;
-                
             }
         }
-        info!("das lesen war {}, mit {} Bytes die nicht 5 waren", success, bad_counter);
+        info!(
+            "das lesen war {}, mit {} Bytes die nicht 5 waren",
+            success, bad_counter
+        );
 
         //läuft mit 5
         //läuft nicht mit 10
@@ -755,7 +757,6 @@ impl AhciController {
         let rest = size % 4096;
         //info!("full amt is {} and rest ist {}", full_amt, rest);
         if rest != 0 {
-            //info!("needed +1");
             frame_count = full_amt + 1;
         } else {
             frame_count = full_amt;
@@ -852,15 +853,17 @@ impl AhciController {
             //info!("done");
         } else {
             //info!("descriptor count ist {:?}", descriptor_count);
+            let mut table =
+                output.offset((1) as isize) as *mut HbaPhysicalRegionDescriptorTableEntry;
+            // passt das hier mit der Umwandlung des Pointers??
             for i in 0..descriptor_count {
-                let mut descriptor =
-                    output.offset((i + 1) as isize) as *mut HbaPhysicalRegionDescriptorTableEntry;
+                let mut descriptor = table.offset(i as isize);
 
                 (*descriptor).dataBaseAddress = (physical_dma_buffer + (i * 4096) as u64) as u32;
                 (*descriptor).dataBaseAddressUpper =
                     ((physical_dma_buffer + (i * 4096) as u64) >> 32) as u32;
 
-                let remaining_bytes = byte_count - i * 4096;
+                let remaining_bytes = byte_count - (i * 4096);
                 //info!("remaining bytes ist: {}", remaining_bytes);
                 if remaining_bytes < 4096 {
                     (*descriptor).databytecount_and_interruptOnCompletion = remaining_bytes;
@@ -988,6 +991,9 @@ impl AhciController {
         atapi_command: [u8; 16],
     ) -> bool {
         let mut port = (self.ports_start as *mut HbaPort).offset(portnr.try_into().unwrap());
+
+        let tfd = (*port).taskFileData;
+        info!("am anfang von write ist tfd {}", tfd);
         let mut command_list_addr = (*port).commandListBaseAddress as u64
             | (((*port).commandListBaseAddressUpper as u64) << 32);
 
@@ -997,7 +1003,7 @@ impl AhciController {
         // weil ich nur bisher einen cmd_header in der Liste habe, kann ich da direkt reinschreiben
         let mut first_cmd_header = Self::get_cmd_table_header(command_list_addr as *mut u8);
         //die command List besteht aus cmd_table_headern, welche selbst dann auf die command Table verweisen
-        
+
         /*  info!(
             "first_cmd_header in write to device is {:?}",
             first_cmd_header
@@ -1080,7 +1086,6 @@ impl AhciController {
 
         let check_cmd = (*port).command;
         info!("check_cmd ist {:?}", check_cmd);
-
 
         let success = (*port).issueCommand(slot as u32);
         if !success {
@@ -1167,6 +1172,7 @@ impl AhciController {
 
             //hier wird in den Buffer geschrieben
             info!("command fis ist {:?}", command_fis);
+
             let success =
                 self.write_to_device(portnr, buffer_addr, buffer_size, command_fis, atapi_cmd);
             // todo hier könnten noch allocs gelöscht werden, kommt erst im cleanup
@@ -1379,7 +1385,7 @@ impl AhciController {
         let end_time = sys_get_system_time();
         let mut write_time = end_time - start_time;
         // info!("free in test_write");
-        frames::free(write_region);
+        //frames::free(write_region);
         write_time
     }
 
