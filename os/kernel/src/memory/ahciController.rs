@@ -371,7 +371,7 @@ pub fn init() {
             ahci_controller.rebase_port(i);
         }
         ahci_controller.test_identify_all_ports();
-        ahci_controller.init_all_ports_as_block_devices();
+        //ahci_controller.init_all_ports_as_block_devices();
 
         info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
@@ -386,9 +386,9 @@ pub fn init() {
 
         // hier wird in den Speicher geschrieben/ gelesen
 
-        /*let portnr = 1;
+       /* let portnr = 1;
         let test_add = 0;
-        let sector_count = 1024 * 8 + test_add;
+        let sector_count = 1024 * 64 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
 
         info!("teste write");
@@ -428,7 +428,7 @@ pub fn init() {
         //ahci_controller.benchmark_random_read(1000, 1);
 
         //4096 *2 läuft
-        ahci_controller.benchmark_read(1, 10, 0);
+        ahci_controller.benchmark_read(1024*69, 1, 0);
         //ahci_controller.benchmark_write(1, 10, 1);
 
         //let mut w100k:Vec<isize> = Vec::new();
@@ -1245,7 +1245,7 @@ impl AhciController {
 
         }
         return count;
-        
+
     }
 
     unsafe fn write(
@@ -1344,30 +1344,50 @@ impl AhciController {
         //count ist die Anzahl der Sektoren
         // in buffer soll reingeschrieben werden
         //output ist die Anzahl an Sektoren
-        let sector_size = id_device.bytesPerSector;
 
-        let read_bytes: u64 = (SEKTORGROESSE * count as u32) as u64;
-        let region_buffer = AhciController::allocate_heap_region(read_bytes);
-        let region_buffer_addr = region_buffer.start.start_address().as_u64();
-        let max_capacity = id_device.lbaCapacity.try_into().unwrap();
-        self.performAtaIO(
-            portnr,
-            max_capacity,
-            TransferMode::READ,
-            region_buffer_addr,
-            sector,
-            count as u32,
-        );
+        let mut read_reps = count / SEKTORZAHL;
+        let read_rest = count % SEKTORZAHL;
 
-        //kopiere in den output
-        // könnte funktionieren
+        if read_rest != 0 {
+            read_reps = read_reps + 1;
+        }
 
-        //achtung ist die as_mut_ptr() falsch??
-        let mut region_ptr = region_buffer.start.start_address().as_u64() as *mut u8;
-        ptr::copy_nonoverlapping(region_ptr, buffer.as_mut_ptr(), buffer.len() as usize);
+        info!("read reps ist: {}", read_reps);
 
-        frames::free(region_buffer);
+        for i in 0..read_reps {
+            let mut sector_size = id_device.bytesPerSector;
+            if sector_size == 0 {
+                sector_size = 512;
+            }
+            let remaining = count - i * SEKTORZAHL;
 
+            let mut sector_count = remaining;
+
+            if sector_count > SEKTORZAHL{
+                sector_count = SEKTORZAHL;
+            }
+
+            let read_bytes: u64 = (sector_size as u32 * SEKTORZAHL as u32) as u64;
+            let region_buffer = AhciController::allocate_heap_region(read_bytes);
+            let region_buffer_addr = region_buffer.start.start_address().as_u64();
+            let max_capacity = id_device.lbaCapacity.try_into().unwrap();
+            self.performAtaIO(
+                portnr,
+                max_capacity,
+                TransferMode::READ,
+                region_buffer_addr,
+                (i * SEKTORZAHL) as u64,
+                sector_count as u32,
+            );
+
+            let mut region_ptr = region_buffer.start.start_address().as_u64() as *mut u8;
+            ptr::copy_nonoverlapping(region_ptr, buffer.as_mut_ptr().offset((i * SEKTORZAHL) as isize), read_bytes as usize);
+
+            // hier müsste noch ein free gemacht werden
+
+            frames::free(region_buffer);
+
+        }
         return count;
     }
 
