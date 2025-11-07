@@ -371,7 +371,7 @@ pub fn init() {
             ahci_controller.rebase_port(i);
         }
         ahci_controller.test_identify_all_ports();
-        //ahci_controller.init_all_ports_as_block_devices();
+        ahci_controller.init_all_ports_as_block_devices();
 
         info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
