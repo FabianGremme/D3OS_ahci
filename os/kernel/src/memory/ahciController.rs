@@ -371,7 +371,7 @@ pub fn init() {
             ahci_controller.rebase_port(i);
         }
         ahci_controller.test_identify_all_ports();
-        ahci_controller.init_all_ports_as_block_devices();
+        //ahci_controller.init_all_ports_as_block_devices();
 
         info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
@@ -425,9 +425,26 @@ pub fn init() {
 
         //ahci_controller.benchmark_random_read(1000, 1);
 
-        //läuft bis 1024 * 86
-        ahci_controller.benchmark_read(1024*100, 10, 1);
-        //ahci_controller.benchmark_write(1024 * 100, 10, 1);
+
+
+        // alle benchmarks für qemu
+        ahci_controller.benchmark_read(200, 100, 1);
+        //ahci_controller.benchmark_write(200, 100, 1);
+
+        /*ahci_controller.benchmark_read(1024, 100, 1);
+        ahci_controller.benchmark_write(1024, 100, 1);
+
+        ahci_controller.benchmark_read(1024 * 10, 100, 1);
+        ahci_controller.benchmark_write(1024 * 10, 100, 1);
+
+        ahci_controller.benchmark_read(1024 * 20, 100, 1);
+        ahci_controller.benchmark_write(1024 * 20, 100, 1);
+
+        ahci_controller.benchmark_read(1024 * 40, 100, 1);
+        ahci_controller.benchmark_write(1024 * 40, 100, 1);
+
+        ahci_controller.benchmark_read(1024 * 100, 100, 1);
+        ahci_controller.benchmark_write(1024 * 100, 100, 1);*/
 
 
         //ahci_controller.benchmark_random_read(5, 1);
@@ -1245,7 +1262,6 @@ impl AhciController {
                 read_bytes as usize,
             );
 
-            // hier müsste noch ein free gemacht werden
 
             frames::free(region_buffer);
         }
@@ -1388,12 +1404,12 @@ impl AhciController {
 
             let mut region_ptr = region_buffer_addr as *mut u8;
             let mybuffer = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
-            for i in 0..mybuffer.len(){
+            /*for i in 0..mybuffer.len(){
                 if mybuffer[i] != 5{
                     info!("Es scheitert schon in den test read!!");
                     break;
                 }
-            }
+            }*/
 
             let buffer_pos = buffer.as_mut_ptr().offset(current_offset );
             ptr::copy_nonoverlapping(
@@ -1403,8 +1419,6 @@ impl AhciController {
             );
 
             current_offset = current_offset + read_bytes as isize;
-
-            // hier müsste noch ein free gemacht werden
 
             frames::free(region_buffer);
         }
@@ -1565,6 +1579,9 @@ impl AhciController {
             "start read benchmark, with {} sectors in a sequence and {} repetitions",
             sector_count, repetitions
         );
+
+        let mut read_times:Vec<isize> = Vec::new();
+
         let id_device = self.identify_device(port_nr);
         let sector_size = 512; //id_device.bytesPerSector;
         let read_bytes: u64 = (sector_size * sector_count) as u64;
@@ -1584,6 +1601,7 @@ impl AhciController {
                 self.benchmark_check_single_read(sector_count, &buffer, &id_device, port_nr);
             if single_result != -1 {
                 full_time_ms += single_result;
+                read_times.push(single_result);
                 amt_success += 1;
             }
         }
@@ -1595,6 +1613,7 @@ impl AhciController {
             "managed to read {} of {} times successfully with a complete time of {} ms",
             amt_success, repetitions, full_time_ms
         );
+        info!("die Zeiten des read Benchmarks sind: {:?}", read_times);
         frames::free(single_region);
     }
 
@@ -1698,6 +1717,8 @@ impl AhciController {
             "start write benchmark, with {} sectors in a sequence and {} repetitions",
             sector_count, repetitions
         );
+        
+        let mut write_times:Vec<isize> = Vec::new();
         let id_device = self.identify_device(port_nr);
         let mut full_time_ms = 0;
         let mut amt_success = 0;
@@ -1708,6 +1729,7 @@ impl AhciController {
             if single_result != -1 {
                 full_time_ms += single_result;
                 amt_success += 1;
+                write_times.push(single_result);
             }
         }
         info!(
@@ -1718,6 +1740,7 @@ impl AhciController {
             "managed to write {} of {} times successfully with a complete time of {} ms",
             amt_success, repetitions, full_time_ms
         );
+        info!("die Zeiten des write Benchmarks sind: {:?}", write_times);
     }
 
     pub unsafe fn benchmark_random_write(&self, repetitions: u32, port_nr: u32) -> isize {
