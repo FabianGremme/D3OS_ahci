@@ -386,9 +386,9 @@ pub fn init() {
 
         // hier wird in den Speicher geschrieben/ gelesen
 
-        let portnr = 1;
-        let test_add = 1;
-        let sector_count = 1024*8 + test_add;
+        /*let portnr = 1;
+        let test_add = 0;
+        let sector_count = 1024*1 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
 
         //info!("teste benchmark, check single write");
@@ -421,13 +421,13 @@ pub fn init() {
         info!(
             "das lesen war {}, mit {} Bytes die nicht 5 waren",
             success, bad_counter
-        );
+        );*/
 
         //ahci_controller.benchmark_random_read(1000, 1);
 
         //läuft bis 1024 * 86
-        //ahci_controller.benchmark_read(1024*85, 1, 1);
-        //ahci_controller.benchmark_write(1024 * 10, 1, 1);
+        ahci_controller.benchmark_read(1024*100, 10, 1);
+        //ahci_controller.benchmark_write(1024 * 100, 10, 1);
 
 
         //ahci_controller.benchmark_random_read(5, 1);
