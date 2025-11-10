@@ -371,7 +371,7 @@ pub fn init() {
             ahci_controller.rebase_port(i);
         }
         ahci_controller.test_identify_all_ports();
-        //ahci_controller.init_all_ports_as_block_devices();
+        ahci_controller.init_all_ports_as_block_devices();
 
         info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
@@ -386,9 +386,9 @@ pub fn init() {
 
         // hier wird in den Speicher geschrieben/ gelesen
 
-        /*let portnr = 1;
+        let portnr = 1;
         let test_add = 0;
-        let sector_count = 1024*1 + test_add;
+        let sector_count = 1 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
 
         //info!("teste benchmark, check single write");
@@ -421,13 +421,13 @@ pub fn init() {
         info!(
             "das lesen war {}, mit {} Bytes die nicht 5 waren",
             success, bad_counter
-        );*/
+        );
 
         //ahci_controller.benchmark_random_read(1000, 1);
 
         // alle benchmarks für qemu
         //ahci_controller.benchmark_read(200, 100, 0);
-        ahci_controller.benchmark_write(200, 1, 0);
+        //ahci_controller.benchmark_write(200, 1, 0);
 
         //ahci_controller.benchmark_read(1024 *2, 100, 0);
         //ahci_controller.benchmark_write(1024 * 2, 100, 0);
@@ -1088,7 +1088,7 @@ impl AhciController {
         if atapi_command[0] != 0 {
             atapi = 1;
         }
-        let write = 0;
+        let write = 1;
 
         //zerteile die Adresse
         let cmd_table_base_addr: u64 = cmd_table as u64;
@@ -1157,7 +1157,7 @@ impl AhciController {
             typ: 39,                     //Typ = Host To Device
             port_mult_and_cmd_ctrl: 128, //nur command control ist auf 1
             command: 0,
-            featureLow: 0, //todo das hier ist auf 0 war vorher 1
+            featureLow: 1, //todo das hier ist auf 0 war vorher 1
             lba0: (start_sector & 0xff) as u8,
             lba1: (start_sector >> 8 & 0xff) as u8,
             lba2: (start_sector >> 16 & 0xff) as u8,
