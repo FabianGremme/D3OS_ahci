@@ -18,6 +18,10 @@ pub fn sys_get_system_time() -> isize {
     timer().systime_ms() as isize
 }
 
+pub fn sys_get_system_time_ns() -> isize {
+    timer().systime_ns() as isize
+}
+
 pub fn sys_get_date() -> isize {
     if !efi_services_available() {
         return 0;
