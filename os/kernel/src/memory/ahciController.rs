@@ -371,7 +371,7 @@ pub fn init() {
             ahci_controller.rebase_port(i);
         }
         ahci_controller.test_identify_all_ports();
-        ahci_controller.init_all_ports_as_block_devices();
+        //ahci_controller.init_all_ports_as_block_devices();
 
         info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
@@ -862,13 +862,12 @@ impl AhciController {
         let output = pointer as *mut HbaCommandTable;
 
         if descriptor_count == 1 {
-            //info!("es reicht ein descriptor");
+            info!("es reicht ein descriptor");
             //descriptor hängt direkt nach der hba_cmd_table
             let mut descriptor = output.offset(1) as *mut HbaPhysicalRegionDescriptorTableEntry;
             (*descriptor).dataBaseAddress = physical_dma_buffer as u32;
             (*descriptor).dataBaseAddressUpper = (physical_dma_buffer >> 32) as u32;
             (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
-            //info!("done");
         } else {
             //info!("descriptor count ist {:?}", descriptor_count);
             let mut table =
@@ -1022,11 +1021,13 @@ impl AhciController {
         let check_cmd1 = (*port).command;
         //info!("check_cmd1 ist {:?}", check_cmd1);
 
+        info!("###########command fis ist {:?}", command_fis);
+
         // weil ich nur bisher einen cmd_header in der Liste habe, kann ich da direkt reinschreiben
         let mut first_cmd_header = Self::get_cmd_table_header(command_list_addr as *mut u8);
         //die command List besteht aus cmd_table_headern, welche selbst dann auf die command Table verweisen
 
-        /*  info!(
+        /*info!(
             "first_cmd_header in write to device is {:?}",
             first_cmd_header
         );*/
@@ -1058,14 +1059,34 @@ impl AhciController {
         tfd = (*port).taskFileData;
         info!("vor dem alloc ist tfd {}", tfd);
 
+        let to_alloc = ((descriptor_count / descriptors_per_page as u32) + 1) as usize;
+
         let prdt_frames =
-            frames::alloc(((descriptor_count / descriptors_per_page as u32) + 1) as usize);
+            frames::alloc(to_alloc);
+
+
+        // erstelle einen slice um das zu kontrollieren:
+
         let prdt_start_addr = prdt_frames.start.start_address().as_u64();
-        tfd = (*port).taskFileData;
-        info!("nach dem alloc ist tfd {}", tfd);
+
+        let prdt_ptr = prdt_start_addr as *mut u8;
+
+        let mut prdt_sl =
+                core::slice::from_raw_parts_mut(prdt_ptr, to_alloc);
+
+        info!("-------------die prdt sl ist {:?}", &prdt_sl);
+        for i in 0..prdt_sl.len(){
+            prdt_sl[i] = 0;
+        }
+        info!("-------------die prdt sl ist {:?}", &prdt_sl);
+
 
         let mut cmd_table =
             self.create_hba_cmd_table(byte_count, physical_dma, prdt_start_addr, descriptor_count);
+
+        info!("-------------die prdt sl ist {:?}", &prdt_sl);
+
+
         (*cmd_table).commandFis = command_fis.clone();
         (*cmd_table).atapiCommand = atapi_command.clone();
 
