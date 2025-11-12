@@ -386,7 +386,7 @@ pub fn init() {
 
         // hier wird in den Speicher geschrieben/ gelesen
 
-        let portnr = 1;
+        let portnr = 0;
         let test_add = 0;
         let sector_count = 1 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
@@ -1124,12 +1124,15 @@ impl AhciController {
         // atapi ist 0, weil es ein ata Befehl ist
         // cmd_fis_len ist 5
 
+        info!("prdtl ist {}", physical_region_descriptor_table_length);
+        info!("cmd fis len ist {}", cmd_fis_len);
+
         let dword0 = (physical_region_descriptor_table_length << 16) as u32
             | (atapi << 5) as u32
-            | (write << 4) as u32       //es soll geschrieben werden
+            | (write << 6) as u32       //es soll geschrieben werden
             | cmd_fis_len as u32;
         (*first_cmd_header).dword0 = dword0;
-        //info!("dword0 write ist {:b}", dword0);
+        info!("dword0 write ist {:b}", dword0);
 
         (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
         (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
