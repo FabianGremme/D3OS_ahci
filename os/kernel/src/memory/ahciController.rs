@@ -388,7 +388,7 @@ pub fn init() {
 
         let portnr = 0;
         let test_add = 0;
-        let sector_count = 1 + test_add;
+        let sector_count = 1024*8 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
 
         //info!("teste benchmark, check single write");
@@ -396,7 +396,7 @@ pub fn init() {
 
         info!("teste write");
 
-        ahci_controller.test_write(portnr, 0, sector_count, 5, &id_device1);
+        //ahci_controller.test_write(portnr, 0, sector_count, 5, &id_device1);
 
         info!("Experiment read");
 
