@@ -426,6 +426,9 @@ pub fn init() {
             success, bad_counter
         );
 
+        let id_device2 = ahci_controller.identify_device(portnr);
+
+
         //ahci_controller.benchmark_random_read(1000, 1);
 
         // alle benchmarks für qemu
@@ -873,6 +876,7 @@ impl AhciController {
             (*descriptor).dataBaseAddress = physical_dma_buffer as u32;
             (*descriptor).dataBaseAddressUpper = (physical_dma_buffer >> 32) as u32;
             (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
+            info!("im single ist der byte count: {:x}", byte_count -1);
         } else {
             info!("else fall mit descriptor count ist {:?}", descriptor_count);
             let mut table =
@@ -884,14 +888,16 @@ impl AhciController {
 
                 (*descriptor).dataBaseAddress = (physical_dma_buffer + (i * 4*1024) as u64) as u32;
                 (*descriptor).dataBaseAddressUpper =
-                    ((physical_dma_buffer + (i * 8*1024) as u64) >> 32) as u32;
+                    ((physical_dma_buffer + (i * 4*1024) as u64) >> 32) as u32;
 
                 let remaining_bytes = byte_count - (i * 4096);
                 //info!("remaining bytes ist: {}", remaining_bytes);
                 if remaining_bytes < 4096 {
-                    (*descriptor).databytecount_and_interruptOnCompletion = byte_count -1;//remaining_bytes;
+                    (*descriptor).databytecount_and_interruptOnCompletion = remaining_bytes;
+                    info!("im multi last ist der byte count: {:x}", byte_count -1);
                 } else {
                     (*descriptor).databytecount_and_interruptOnCompletion = byte_count -1;//8*1024 - 1;
+                    info!("im multi ist der byte count: {:x}", byte_count -1);
                 }
                 //info!("der fertige descriptor ist {:?}", *descriptor);
             }
@@ -1881,10 +1887,19 @@ impl HbaPort {
         timeout = sys_get_system_time() + COMMAND_TIMEOUT;
         while true {
             let test = self.sataError;
-            //info!("command issue ist bei {:?}", test);
+            
             if ((self.commandIssue & (1 << slot)) == 0) {
-                //info!("issue command success");
+                info!("issue command success");
+                // hier müssen noch die interrupt bits zurückgesetzt werden:
+                self.interruptStatus = self.interruptStatus | 1<<5;
                 break;
+            }
+
+            //https://www.dgway.com/products/IP/SATA-IP/dg_sataahciip_refdesign_en/
+            //setze hier den descriptor auf bearbeitet:
+            // nachdem ein interrupt kam bedeutet das, dass der descriptor fertig bearbeitet wurde
+            if self.interruptStatus & 1 == 1{
+                self.interruptStatus = self.interruptStatus | 1<<5;
             }
 
             if (self.interruptStatus & TASK_FILE_ERROR) > 0 {
