@@ -388,7 +388,7 @@ pub fn init() {
 
         let portnr = 0;
         let test_add = 0;
-        let sector_count = 32 + test_add;
+        let sector_count = 33 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
 
         //info!("teste benchmark, check single write");
@@ -397,6 +397,9 @@ pub fn init() {
         info!("teste write");
 
         ahci_controller.test_write(portnr, 0, sector_count, 5, &id_device1);
+
+        //info!("try_id_device afterwards");
+        //let id_device2 = ahci_controller.identify_device(portnr);
 
         info!("Experiment read");
 
@@ -857,24 +860,27 @@ impl AhciController {
         let pointer: *mut u8 = prdt_start_addr as *mut u8;
 
         //schreibe 0 in die ganzen Felder
-
+        info!("start adresse ist {}", prdt_start_addr);
         //pointer.write_bytes(0, 4096 * descriptor_count as usize);
         let output = pointer as *mut HbaCommandTable;
+        info!("ouput in der create hba_cmd ist {:?}", output);
 
         if descriptor_count == 1 {
             info!("es reicht ein descriptor");
             //descriptor hängt direkt nach der hba_cmd_table
             let mut descriptor = output.offset(1) as *mut HbaPhysicalRegionDescriptorTableEntry;
+            info!("descriptor ist im single {:?}", descriptor);
             (*descriptor).dataBaseAddress = physical_dma_buffer as u32;
             (*descriptor).dataBaseAddressUpper = (physical_dma_buffer >> 32) as u32;
             (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
         } else {
-            //info!("descriptor count ist {:?}", descriptor_count);
+            info!("else fall mit descriptor count ist {:?}", descriptor_count);
             let mut table =
                 output.offset((1) as isize) as *mut HbaPhysicalRegionDescriptorTableEntry;
             // passt das hier mit der Umwandlung des Pointers??
             for i in 0..descriptor_count {
                 let mut descriptor = table.offset(i as isize);
+                info!("descriptor ist im multi {:?}", descriptor);
 
                 (*descriptor).dataBaseAddress = (physical_dma_buffer + (i * 4*1024) as u64) as u32;
                 (*descriptor).dataBaseAddressUpper =
@@ -883,7 +889,7 @@ impl AhciController {
                 let remaining_bytes = byte_count - (i * 4096);
                 //info!("remaining bytes ist: {}", remaining_bytes);
                 if remaining_bytes < 4096 {
-                    (*descriptor).databytecount_and_interruptOnCompletion = remaining_bytes;
+                    (*descriptor).databytecount_and_interruptOnCompletion = byte_count -1;//remaining_bytes;
                 } else {
                     (*descriptor).databytecount_and_interruptOnCompletion = byte_count -1;//8*1024 - 1;
                 }
