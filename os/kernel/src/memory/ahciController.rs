@@ -399,7 +399,7 @@ pub fn init() {
         ahci_controller.test_write(portnr, 0, sector_count, 5, &id_device1);
 
         //info!("try_id_device afterwards");
-        //let id_device2 = ahci_controller.identify_device(portnr);
+        let id_device2 = ahci_controller.identify_device(portnr);
 
         info!("Experiment read");
 
@@ -1896,6 +1896,7 @@ impl HbaPort {
                 info!("issue command success");
                 // hier müssen noch die interrupt bits zurückgesetzt werden:
                 self.interruptStatus = self.interruptStatus | 1<<5;
+                self.interruptStatus & 0xfffffffe;
                 break;
             }
 
