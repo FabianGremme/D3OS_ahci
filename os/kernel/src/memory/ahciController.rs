@@ -994,7 +994,7 @@ impl AhciController {
                 atapi = 1;
             }
             //zerteile die Adresse
-            let cmd_table_base_addr: u64 = cmd_table as u64;
+            let cmd_table_base_addr: u64 = prdt_start_addr;//cmd_table as u64;
             let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
             let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
 
@@ -1128,7 +1128,7 @@ impl AhciController {
         let write = 1;
 
         //zerteile die Adresse
-        let cmd_table_base_addr: u64 = cmd_table as u64;
+        let cmd_table_base_addr: u64 = prdt_start_addr;//cmd_table as u64;
         let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
         let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
         /*info!(
