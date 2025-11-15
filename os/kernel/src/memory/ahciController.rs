@@ -388,7 +388,7 @@ pub fn init() {
 
         let portnr = 0;
         let test_add = 0;
-        let sector_count = 1024*8 + test_add;
+        let sector_count = 32 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
 
         //info!("teste benchmark, check single write");
@@ -396,7 +396,7 @@ pub fn init() {
 
         info!("teste write");
 
-        //ahci_controller.test_write(portnr, 0, sector_count, 5, &id_device1);
+        ahci_controller.test_write(portnr, 0, sector_count, 5, &id_device1);
 
         info!("Experiment read");
 
@@ -876,16 +876,16 @@ impl AhciController {
             for i in 0..descriptor_count {
                 let mut descriptor = table.offset(i as isize);
 
-                (*descriptor).dataBaseAddress = (physical_dma_buffer + (i * 4096) as u64) as u32;
+                (*descriptor).dataBaseAddress = (physical_dma_buffer + (i * 4*1024) as u64) as u32;
                 (*descriptor).dataBaseAddressUpper =
-                    ((physical_dma_buffer + (i * 4096) as u64) >> 32) as u32;
+                    ((physical_dma_buffer + (i * 8*1024) as u64) >> 32) as u32;
 
                 let remaining_bytes = byte_count - (i * 4096);
                 //info!("remaining bytes ist: {}", remaining_bytes);
                 if remaining_bytes < 4096 {
                     (*descriptor).databytecount_and_interruptOnCompletion = remaining_bytes;
                 } else {
-                    (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
+                    (*descriptor).databytecount_and_interruptOnCompletion = byte_count -1;//8*1024 - 1;
                 }
                 //info!("der fertige descriptor ist {:?}", *descriptor);
             }
@@ -934,8 +934,8 @@ impl AhciController {
             let mut descriptor_count: u32;
             // info!("byte count ist: {:?}", byte_count);
             //info!("berechne descriptor_count: {:?}", byte_count / 4096);
-            let full_amt: u32 = byte_count / (4096);
-            let rest = byte_count % (4096);
+            let full_amt: u32 = byte_count / (4*1024);
+            let rest = byte_count % (4*1024);
             //  info!("full amt is {} and rest ist {}", full_amt, rest);
             if rest != 0 {
                 descriptor_count = full_amt + 1;
@@ -1046,8 +1046,8 @@ impl AhciController {
         let mut descriptor_count;
         //info!("byte count ist: {:?}", byte_count);
         //info!("berechne descriptor_count: {:?}", byte_count / 4096);
-        let full_amt = byte_count / (4096); // für big (4096*1024)
-        let rest = byte_count % (4096); // für big (4096*1024)
+        let full_amt = byte_count / (4*1024); // für big (4096*1024)
+        let rest = byte_count % (4*1024); // für big (4096*1024)
         //info!("full amt is {} and rest ist {}", full_amt, rest);
         if rest != 0 {
             descriptor_count = full_amt + 1;
