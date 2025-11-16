@@ -388,7 +388,7 @@ pub fn init() {
 
         let portnr = 0;
         let test_add = 0;
-        let sector_count = 1024 + test_add;
+        let sector_count = 8 + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
 
         //info!("teste benchmark, check single write");
@@ -897,10 +897,9 @@ impl AhciController {
                     (*descriptor).databytecount_and_interruptOnCompletion = remaining_bytes | 1<<31;
                     //info!("im multi last ist der byte count: {:x}", byte_count -1);
                 } else {
-                    (*descriptor).databytecount_and_interruptOnCompletion = byte_count -1;//8*1024 - 1;
+                    (*descriptor).databytecount_and_interruptOnCompletion = 4*1024-1;//byte_count -1;//8*1024 - 1;
                     //info!("im multi ist der byte count: {:x}", byte_count -1);
                 }
-                crash = i;
                 //info!("der fertige descriptor ist {:?}", *descriptor);
             }
             
@@ -1920,7 +1919,6 @@ impl HbaPort {
                 info!("sata error war: {}", sata_err);
                 info!("task file data war: {}", tfd);
                 info!("interrupt status war: {}", interrupt_stat);
-                info!("system timeout 2");
                 return false;
             }
 
