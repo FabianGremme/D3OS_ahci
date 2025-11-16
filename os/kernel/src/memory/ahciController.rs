@@ -434,20 +434,23 @@ pub fn init() {
         //ahci_controller.benchmark_read(200, 100, 0);
         //ahci_controller.benchmark_write(200, 100, 0);
 
-        ahci_controller.benchmark_read(1024 *2, 100, 0);
-        ahci_controller.benchmark_write(1024 * 2, 100, 0);
+        //ahci_controller.benchmark_read(1024 *2, 100, 0);
+        //ahci_controller.benchmark_write(1024 * 2, 100, 0);
 
-        ahci_controller.benchmark_read(1024 * 10, 100, 0);
-        ahci_controller.benchmark_write(1024 * 10, 100, 0);
+        //ahci_controller.benchmark_read(1024 * 10, 100, 0);
+        //ahci_controller.benchmark_write(1024 * 10, 100, 0);
 
-        ahci_controller.benchmark_read(1024 * 20, 100, 0);
-        ahci_controller.benchmark_write(1024 * 20, 100, 0);
+        //ahci_controller.benchmark_read(1024 * 20, 100, 0);
+        //ahci_controller.benchmark_write(1024 * 20, 100, 0);
 
-        ahci_controller.benchmark_read(1024 * 40, 100, 0);
-        ahci_controller.benchmark_write(1024 * 40, 100, 0);
+        //ahci_controller.benchmark_read(1024 * 40, 100, 0);
+        //ahci_controller.benchmark_write(1024 * 40, 100, 0);
 
-        ahci_controller.benchmark_read(1024 * 100, 100, 0);
-        ahci_controller.benchmark_write(1024 * 100, 100, 0);
+        //ahci_controller.benchmark_read(1024 * 100, 100, 0);
+        //ahci_controller.benchmark_write(1024 * 100, 100, 0);
+
+        ahci_controller.benchmark_read(1024 * 1024 * 1, 100, 0);
+        //ahci_controller.benchmark_write(1024 * 1024 * 1, 100, 0);
 
         //ahci_controller.benchmark_read(1024 * 1024*5, 100, 0);
 
@@ -1625,7 +1628,7 @@ impl AhciController {
                 read_times.push(single_result);
                 amt_success += 1;
             }
-            //info!("done {}", i);
+            info!("read done {}", i);
         }
         info!(
             "finished read benchmark, with {} sectors in a sequence and {} repetitions",
@@ -1765,7 +1768,7 @@ impl AhciController {
                 amt_success += 1;
                 write_times.push(single_result);
             }
-            //info!("done {}", i);
+            info!("write done {}", i);
         }
         info!(
             "finished write benchmark, with {} sectors in a sequence and {} repetitions",
