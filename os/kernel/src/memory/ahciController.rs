@@ -56,7 +56,7 @@ const ATAPI_READ_CAPACITY: u8 = 0x25;
 
 //sektorgroesse
 const SEKTORGROESSE: u32 = 512;
-const SEKTORZAHL: usize = 8;//1024 * 1;
+const SEKTORZAHL: usize = 8*1024;// 8 //1024 * 1;
 
 enum BiosHandoffFlags {
     BIOS_OWNED_SEMAPHORE = 1 << 0,
@@ -431,26 +431,26 @@ pub fn init() {
         //ahci_controller.benchmark_random_read(1000, 1);
 
         // alle benchmarks für qemu
-        //ahci_controller.benchmark_read(200, 100, 0);
-        //ahci_controller.benchmark_write(200, 100, 0);
+        /*ahci_controller.benchmark_read(200, 100, 0);
+        ahci_controller.benchmark_write(200, 100, 0);
 
-        //ahci_controller.benchmark_read(1024 *2, 100, 0);
-        //ahci_controller.benchmark_write(1024 * 2, 100, 0);
+        ahci_controller.benchmark_read(1024 *2, 100, 0);
+        ahci_controller.benchmark_write(1024 * 2, 100, 0);
 
-        //ahci_controller.benchmark_read(1024 * 10, 100, 0);
-        //ahci_controller.benchmark_write(1024 * 10, 100, 0);
+        ahci_controller.benchmark_read(1024 * 10, 100, 0);
+        ahci_controller.benchmark_write(1024 * 10, 100, 0);
 
-        //ahci_controller.benchmark_read(1024 * 20, 100, 0);
-        //ahci_controller.benchmark_write(1024 * 20, 100, 0);
+        ahci_controller.benchmark_read(1024 * 20, 100, 0);
+        ahci_controller.benchmark_write(1024 * 20, 100, 0);
 
-        //ahci_controller.benchmark_read(1024 * 40, 100, 0);
-        //ahci_controller.benchmark_write(1024 * 40, 100, 0);
+        ahci_controller.benchmark_read(1024 * 40, 100, 0);
+        ahci_controller.benchmark_write(1024 * 40, 100, 0);
 
-        //ahci_controller.benchmark_read(1024 * 100, 100, 0);
-        //ahci_controller.benchmark_write(1024 * 100, 100, 0);
+        ahci_controller.benchmark_read(1024 * 100, 100, 0);
+        ahci_controller.benchmark_write(1024 * 100, 100, 0);*/
 
         ahci_controller.benchmark_read(1024 * 1024 * 1, 100, 0);
-        //ahci_controller.benchmark_write(1024 * 1024 * 1, 100, 0);
+        ahci_controller.benchmark_write(1024 * 1024 * 1, 100, 0);
 
         //ahci_controller.benchmark_read(1024 * 1024*5, 100, 0);
 
@@ -889,18 +889,18 @@ impl AhciController {
                 let mut descriptor = table.offset(i as isize);
                 //info!("descriptor ist im multi {:?}", descriptor);
 
-                (*descriptor).dataBaseAddress = (physical_dma_buffer + (i * 4*1024) as u64) as u32;
+                (*descriptor).dataBaseAddress = (physical_dma_buffer + (i * 4*1024*1024) as u64) as u32;
                 (*descriptor).dataBaseAddressUpper =
-                    ((physical_dma_buffer + (i * 4*1024) as u64) >> 32) as u32;
+                    ((physical_dma_buffer + (i * 4*1024*1024) as u64) >> 32) as u32;
 
                 //info!("byte count ist {} und das andere ist {}",byte_count, i*8*1024 );
-                let remaining_bytes = byte_count - (i * 4*1024);
+                let remaining_bytes = byte_count - (i * 4*1024*1024);
                 //info!("remaining by*tes ist: {}", remaining_bytes);
-                if remaining_bytes <  4*1024 {
+                if remaining_bytes <  4*1024*1024 {
                     (*descriptor).databytecount_and_interruptOnCompletion = remaining_bytes | 1<<31;
                     //info!("im multi last ist der byte count: {:x}", byte_count -1);
                 } else {
-                    (*descriptor).databytecount_and_interruptOnCompletion = 4*1024-1;//byte_count -1;//8*1024 - 1;
+                    (*descriptor).databytecount_and_interruptOnCompletion = 4*1024*1024-1;//byte_count -1;//8*1024 - 1;
                     //info!("im multi ist der byte count: {:x}", byte_count -1);
                 }
                 //info!("der fertige descriptor ist {:?}", *descriptor);
@@ -951,8 +951,8 @@ impl AhciController {
             let mut descriptor_count: u32;
             //info!("byte count ist: {:?}", byte_count);
             //info!("berechne descriptor_count: {:?}", byte_count / 4096);
-            let full_amt: u32 = byte_count / (4*1024);
-            let rest = byte_count % (4*1024);
+            let full_amt: u32 = byte_count / (4*1024*1024);
+            let rest = byte_count % (4*1024*1024);
             //info!("full amt is {} and rest ist {}", full_amt, rest);
             if rest != 0 {
                 descriptor_count = full_amt + 1;
@@ -981,8 +981,8 @@ impl AhciController {
 
             // info!("byte count in read to device ist {}", byte_count);
             let mut physical_region_descriptor_table_length;
-            let full_amt = byte_count / 4096;
-            let rest = byte_count % 4096;
+            let full_amt = byte_count / (4096*1024);
+            let rest = byte_count % (4096*1024);
             if rest != 0 {
                 physical_region_descriptor_table_length = full_amt + 1;
             } else {
@@ -1056,8 +1056,8 @@ impl AhciController {
             let mut descriptor_count: u32;
             //info!("byte count ist: {:?}", byte_count);
             //info!("berechne descriptor_count: {:?}", byte_count / 4096);
-            let full_amt: u32 = byte_count / (4*1024);
-            let rest = byte_count % (4*1024);
+            let full_amt: u32 = byte_count / (4*1024*1024);
+            let rest = byte_count % (4*1024*1024);
             //info!("full amt is {} and rest ist {}", full_amt, rest);
             if rest != 0 {
                 descriptor_count = full_amt + 1;
@@ -1086,8 +1086,8 @@ impl AhciController {
 
             // info!("byte count in read to device ist {}", byte_count);
             let mut physical_region_descriptor_table_length;
-            let full_amt = byte_count / 4096;
-            let rest = byte_count % 4096;
+            let full_amt = byte_count / (4096*1024);
+            let rest = byte_count % (4096*1024);
             if rest != 0 {
                 physical_region_descriptor_table_length = full_amt + 1;
             } else {
