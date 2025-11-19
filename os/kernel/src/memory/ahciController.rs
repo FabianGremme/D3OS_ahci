@@ -1768,7 +1768,7 @@ impl AhciController {
                 amt_success += 1;
                 write_times.push(single_result);
             }
-            info!("write done {}", i);
+           info!("write done {}", i);
         }
         info!(
             "finished write benchmark, with {} sectors in a sequence and {} repetitions",
