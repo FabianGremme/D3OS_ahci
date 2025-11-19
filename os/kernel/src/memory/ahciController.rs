@@ -56,7 +56,7 @@ const ATAPI_READ_CAPACITY: u8 = 0x25;
 
 //sektorgroesse
 const SEKTORGROESSE: u32 = 512;
-const SEKTORZAHL: usize = 8*1024;// 8 //1024 * 1;
+const SEKTORZAHL: usize = 64*1024;// 8 //1024 * 1;
 
 enum BiosHandoffFlags {
     BIOS_OWNED_SEMAPHORE = 1 << 0,
@@ -370,6 +370,7 @@ pub fn init() {
         for i in 0..amt_ports {
             ahci_controller.rebase_port(i);
         }
+        info!("identifiziere alle ports");
         ahci_controller.test_identify_all_ports();
         //ahci_controller.init_all_ports_as_block_devices();
 
@@ -385,10 +386,10 @@ pub fn init() {
         ahci_controller.check_nr_of_command_slots();
 
         // hier wird in den Speicher geschrieben/ gelesen
-
-        /*let portnr = 0;
+        info!("Start des Experimentes");
+        let portnr = 0;
         let test_add = 0;
-        let sector_count = 17 + test_add;
+        let sector_count = SEKTORZAHL + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
 
         //info!("teste benchmark, check single write");
@@ -424,7 +425,7 @@ pub fn init() {
         info!(
             "das lesen war {}, mit {} Bytes die nicht 5 waren",
             success, bad_counter
-        );*/
+        );
 
         //ahci_controller.test_write(portnr, 0, sector_count, 2, &id_device1);
 
@@ -449,8 +450,8 @@ pub fn init() {
         ahci_controller.benchmark_read(1024 * 100, 100, 0);
         ahci_controller.benchmark_write(1024 * 100, 100, 0);*/
 
-        ahci_controller.benchmark_read(1024 * 1024 * 1, 100, 0);
-        ahci_controller.benchmark_write(1024 * 1024 * 1, 100, 0);
+        //ahci_controller.benchmark_read(1024 * 1024 * 1, 100, 0);
+        //ahci_controller.benchmark_write(1024 * 1024 * 1, 100, 0);
 
         //ahci_controller.benchmark_read(1024 * 1024*5, 100, 0);
 
@@ -871,27 +872,29 @@ impl AhciController {
         //info!("ouput in der create hba_cmd ist {:?}", output);
 
         if descriptor_count == 1 {
-            //info!("es reicht ein descriptor");
+            info!("es reicht ein descriptor");
             //descriptor hängt direkt nach der hba_cmd_table
             let mut descriptor = output.offset(1) as *mut HbaPhysicalRegionDescriptorTableEntry;
-            //info!("descriptor ist im single {:?}", descriptor);
+            info!("descriptor ist im single {:?}", descriptor);
             (*descriptor).dataBaseAddress = physical_dma_buffer as u32;
             (*descriptor).dataBaseAddressUpper = (physical_dma_buffer >> 32) as u32;
             (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
             //info!("im single ist der byte count: {:x}", byte_count -1);
         } else {
-            //info!("else fall mit descriptor count ist {:?}", descriptor_count);
+            info!("else fall mit descriptor count ist {:?}", descriptor_count);
             let mut table =
                 output.offset((1) as isize) as *mut HbaPhysicalRegionDescriptorTableEntry;
             // passt das hier mit der Umwandlung des Pointers??
             let mut crash = 0;
-            for i in 0..descriptor_count -1{
+            for i in 0..descriptor_count{
                 let mut descriptor = table.offset(i as isize);
                 //info!("descriptor ist im multi {:?}", descriptor);
+                let new_addr = physical_dma_buffer + (i * 4*1024*1024) as u64;
 
-                (*descriptor).dataBaseAddress = (physical_dma_buffer + (i * 4*1024*1024) as u64) as u32;
+                (*descriptor).dataBaseAddress = new_addr as u32;
                 (*descriptor).dataBaseAddressUpper =
-                    ((physical_dma_buffer + (i * 4*1024*1024) as u64) >> 32) as u32;
+                    (new_addr >> 32) as u32;
+                info!("iteration {} :die alte Adresse ist {:x} die neue Adresse des Speichers liegt bei {:x}",i, physical_dma_buffer, new_addr);
 
                 //info!("byte count ist {} und das andere ist {}",byte_count, i*8*1024 );
                 let remaining_bytes = byte_count - (i * 4*1024*1024);
@@ -901,9 +904,9 @@ impl AhciController {
                     //info!("im multi last ist der byte count: {:x}", byte_count -1);
                 } else {
                     (*descriptor).databytecount_and_interruptOnCompletion = 4*1024*1024-1;//byte_count -1;//8*1024 - 1;
-                    //info!("im multi ist der byte count: {:x}", byte_count -1);
+                    info!("im multi ist der byte count: {:x}", 4*1024*1024-1);
+                    info!("die Adresse ")
                 }
-                //info!("der fertige descriptor ist {:?}", *descriptor);
             }
             
         }
@@ -1854,7 +1857,7 @@ impl HbaPort {
         // Issue command
         self.commandIssue = 1 << slot;
 
-        /*info!("issue command vor der zweiten Schleife");
+        info!("issue command vor der zweiten Schleife");
         let cmd = self.command;
         let sata_stat = self.sataStatus;
         let sata_err = self.sataError;
@@ -1864,7 +1867,7 @@ impl HbaPort {
         info!("sata status war: {}", sata_stat);
         info!("sata error war: {}", sata_err);
         info!("task file data war: {}", tfd);
-        info!("interrupt status war: {}", interrupt_stat);*/
+        info!("interrupt status war: {}", interrupt_stat);
 
         // Wait for command completion
         timeout = sys_get_system_time() + COMMAND_TIMEOUT;
@@ -1888,7 +1891,7 @@ impl HbaPort {
             }
 
             if (self.interruptStatus & TASK_FILE_ERROR) > 0 {
-                /*info!("interrupt status and task file error");
+                info!("interrupt status and task file error");
                 let cmd = self.command;
                 let sata_stat = self.sataStatus;
                 let sata_err = self.sataError;
@@ -1898,12 +1901,12 @@ impl HbaPort {
                 info!("sata status war: {}", sata_stat);
                 info!("sata error war: {}", sata_err);
                 info!("task file data war: {}", tfd);
-                info!("interrupt status war: {}", interrupt_stat);*/
+                info!("interrupt status war: {}", interrupt_stat);
                 return false;
             }
 
             if (sys_get_system_time() >= timeout) {
-                /*info!("issue command ist im timeout");
+                info!("issue command ist im timeout");
                 let cmd = self.command;
                 let sata_stat = self.sataStatus;
                 let sata_err = self.sataError;
@@ -1913,7 +1916,7 @@ impl HbaPort {
                 info!("sata status war: {}", sata_stat);
                 info!("sata error war: {}", sata_err);
                 info!("task file data war: {}", tfd);
-                info!("interrupt status war: {}", interrupt_stat);*/
+                info!("interrupt status war: {}", interrupt_stat);
                 info!("system timeout 2");
                 return false;
             }
