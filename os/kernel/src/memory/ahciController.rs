@@ -56,7 +56,9 @@ const ATAPI_READ_CAPACITY: u8 = 0x25;
 
 //sektorgroesse
 const SEKTORGROESSE: u32 = 512;
-const SEKTORZAHL: usize = 64*1024;// 8 //1024 * 1;
+const SEKTORZAHL: usize = 8 * 8; //eigentlich technisch möglich: 8*1024*64*1024
+const SMALLDESCRIPTOR: u32 = 4 * 1024;
+const BIGDESCRIPTOR: u32 = 4 * 1024 * 1024;
 
 enum BiosHandoffFlags {
     BIOS_OWNED_SEMAPHORE = 1 << 0,
@@ -372,7 +374,8 @@ pub fn init() {
         }
         info!("identifiziere alle ports");
         ahci_controller.test_identify_all_ports();
-        //ahci_controller.init_all_ports_as_block_devices();
+        // ahci_controller.init_all_ports_as_block_devices();
+        // hier gibt es pointer copy nonoverlapping Probleme
 
         info!("check if ports have ata");
         ahci_controller.check_ports_for_device();
@@ -386,7 +389,7 @@ pub fn init() {
         ahci_controller.check_nr_of_command_slots();
 
         // hier wird in den Speicher geschrieben/ gelesen
-        info!("Start des Experimentes");
+        /*info!("Start des Experimentes");
         let portnr = 0;
         let test_add = 0;
         let sector_count = SEKTORZAHL + test_add;
@@ -398,7 +401,6 @@ pub fn init() {
         info!("teste write");
 
         ahci_controller.test_write(portnr, 0, sector_count, 5, &id_device1);
-
         //info!("try_id_device afterwards");
         let id_device2 = ahci_controller.identify_device(portnr);
 
@@ -425,7 +427,7 @@ pub fn init() {
         info!(
             "das lesen war {}, mit {} Bytes die nicht 5 waren",
             success, bad_counter
-        );
+        );*/
 
         //ahci_controller.test_write(portnr, 0, sector_count, 2, &id_device1);
 
@@ -448,35 +450,63 @@ pub fn init() {
         ahci_controller.benchmark_write(1024 * 40, 100, 0);
 
         ahci_controller.benchmark_read(1024 * 100, 100, 0);
-        ahci_controller.benchmark_write(1024 * 100, 100, 0);*/
+        ahci_controller.benchmark_write(1024 * 100, 100, 0);
 
-        //ahci_controller.benchmark_read(1024 * 1024 * 1, 100, 0);
-        //ahci_controller.benchmark_write(1024 * 1024 * 1, 100, 0);
+        ahci_controller.benchmark_read(1024 * 1024 * 1, 100, 0);
+        ahci_controller.benchmark_write(1024 * 1024 * 1, 100, 0);*/
 
         //ahci_controller.benchmark_read(1024 * 1024*5, 100, 0);
 
         //ahci_controller.benchmark_random_read(5, 1);
         //ahci_controller.benchmark_random_write(5, 1);
-        //let mut w100k:Vec<isize> = Vec::new();
-        //let mut r100k:Vec<isize> = Vec::new();
+        let mut read_times: Vec<isize> = Vec::new();
+        let mut write_times: Vec<isize> = Vec::new();
 
-        /*  for i in 0..100{
-                //w100k.push(ahci_controller.benchmark_random_read(200, 0));
-                   w100k.push(ahci_controller.benchmark_random_read(20480, 0));
-                   /*  w1m.push(ahci_controller.benchmark_random_read(2048, 0));
-                    r1m.push(ahci_controller.benchmark_random_write(2048, 0));
-                    w5m.push(ahci_controller.benchmark_random_read(10240, 0));
-                    r5m.push(ahci_controller.benchmark_random_write(10240, 0));
-                    w10m.push(ahci_controller.benchmark_random_read(20480, 0));
-                    r10m.push(ahci_controller.benchmark_random_write(20480, 0));
-                    w20m.push(ahci_controller.benchmark_random_read(40960, 0));
-                    r20m.push(ahci_controller.benchmark_random_write(40960, 0));
-                    w50m.push(ahci_controller.benchmark_random_read(102400, 0));
-                    r50m.push(ahci_controller.benchmark_random_write(102400, 0));*/
-                }
+        for i in 0..100 {
+            //w100k.push(ahci_controller.benchmark_random_read(200, 0));
+            read_times.push(ahci_controller.benchmark_random_read(2048*5, 0));
+            write_times.push(ahci_controller.benchmark_random_read(2048*5, 0));
+            /*r1m.push(ahci_controller.benchmark_random_write(2048, 0));
+            w5m.push(ahci_controller.benchmark_random_read(10240, 0));
+            r5m.push(ahci_controller.benchmark_random_write(10240, 0));
+            w10m.push(ahci_controller.benchmark_random_read(20480, 0));
+            r10m.push(ahci_controller.benchmark_random_write(20480, 0));
+            w20m.push(ahci_controller.benchmark_random_read(40960, 0));
+            r20m.push(ahci_controller.benchmark_random_write(40960, 0));
+            w50m.push(ahci_controller.benchmark_random_read(102400, 0));
+            r50m.push(ahci_controller.benchmark_random_write(102400, 0));*/
+        }
 
-                info!("w100k ist {:?}", w100k);
-        */
+        let q1 = &read_times[0..10];
+        let q2 = &read_times[10..20];
+        let q3 = &read_times[20..30];
+        let q4 = &read_times[30..40];
+        let q5 = &read_times[40..50];
+        let q6 = &read_times[50..60];
+        let q7 = &read_times[60..70];
+        let q8 = &read_times[70..80];
+        let q9 = &read_times[80..90];
+        let q10 = &read_times[90..100];
+        info!(
+            "die Zeiten des read Benchmarks sind: \n{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}",
+            q1, q2, q3, q4, q5, q6, q7, q8, q9, q10
+        );
+
+        let wq1 = &write_times[0..10];
+        let wq2 = &write_times[10..20];
+        let wq3 = &write_times[20..30];
+        let wq4 = &write_times[30..40];
+        let wq5 = &write_times[40..50];
+        let wq6 = &write_times[50..60];
+        let wq7 = &write_times[60..70];
+        let wq8 = &write_times[70..80];
+        let wq9 = &write_times[80..90];
+        let wq10 = &write_times[90..100];
+        info!(
+            "die Zeiten des write Benchmarks sind: \n{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}",
+            wq1, wq2, wq3, wq4, wq5, wq6, wq7, wq8, wq9, wq10
+        );
+
         /*for value in w100k{
             info!("{:?}", value);
         }*/
@@ -861,54 +891,49 @@ impl AhciController {
         //später ggf mehrere frames nötig
 
         //kann allocated auch wo anders gemacht werden
-        //vielleicht das als u64 adresse reingeben??
+        //info!("byte count ist {:x}", byte_count);
 
         let pointer: *mut u8 = prdt_start_addr as *mut u8;
 
-        //schreibe 0 in die ganzen Felder
-        //info!("start adresse ist {}", prdt_start_addr);
-        //pointer.write_bytes(0, 4096 * descriptor_count as usize);
         let output = pointer as *mut HbaCommandTable;
         //info!("ouput in der create hba_cmd ist {:?}", output);
 
         if descriptor_count == 1 {
-            info!("es reicht ein descriptor");
+            //info!("es reicht ein descriptor");
             //descriptor hängt direkt nach der hba_cmd_table
             let mut descriptor = output.offset(1) as *mut HbaPhysicalRegionDescriptorTableEntry;
-            info!("descriptor ist im single {:?}", descriptor);
+            //info!("descriptor ist im single {:?}", descriptor);
             (*descriptor).dataBaseAddress = physical_dma_buffer as u32;
             (*descriptor).dataBaseAddressUpper = (physical_dma_buffer >> 32) as u32;
             (*descriptor).databytecount_and_interruptOnCompletion = byte_count - 1;
             //info!("im single ist der byte count: {:x}", byte_count -1);
         } else {
-            info!("else fall mit descriptor count ist {:?}", descriptor_count);
+            //info!("else fall mit descriptor count ist {:?}", descriptor_count);
             let mut table =
                 output.offset((1) as isize) as *mut HbaPhysicalRegionDescriptorTableEntry;
             // passt das hier mit der Umwandlung des Pointers??
             let mut crash = 0;
-            for i in 0..descriptor_count{
+            for i in 0..descriptor_count {
+                let descriptor_size = BIGDESCRIPTOR;
                 let mut descriptor = table.offset(i as isize);
                 //info!("descriptor ist im multi {:?}", descriptor);
-                let new_addr = physical_dma_buffer + (i * 4*1024*1024) as u64;
+                let new_addr = physical_dma_buffer + (i * descriptor_size) as u64;
 
                 (*descriptor).dataBaseAddress = new_addr as u32;
-                (*descriptor).dataBaseAddressUpper =
-                    (new_addr >> 32) as u32;
-                info!("iteration {} :die alte Adresse ist {:x} die neue Adresse des Speichers liegt bei {:x}",i, physical_dma_buffer, new_addr);
+                (*descriptor).dataBaseAddressUpper = (new_addr >> 32) as u32;
+                //info!("iteration {} :die alte Adresse ist {:x} die neue Adresse des Speichers liegt bei {:x}",i, physical_dma_buffer, new_addr);
 
                 //info!("byte count ist {} und das andere ist {}",byte_count, i*8*1024 );
-                let remaining_bytes = byte_count - (i * 4*1024*1024);
+                let remaining_bytes = byte_count - (i * descriptor_size);
                 //info!("remaining by*tes ist: {}", remaining_bytes);
-                if remaining_bytes <  4*1024*1024 {
-                    (*descriptor).databytecount_and_interruptOnCompletion = remaining_bytes | 1<<31;
+                if remaining_bytes < descriptor_size {
+                    (*descriptor).databytecount_and_interruptOnCompletion = remaining_bytes - 1;
                     //info!("im multi last ist der byte count: {:x}", byte_count -1);
                 } else {
-                    (*descriptor).databytecount_and_interruptOnCompletion = 4*1024*1024-1;//byte_count -1;//8*1024 - 1;
-                    info!("im multi ist der byte count: {:x}", 4*1024*1024-1);
-                    info!("die Adresse ")
+                    (*descriptor).databytecount_and_interruptOnCompletion = descriptor_size - 1; //byte_count -1;//8*1024 - 1;
+                    //info!("im multi ist der byte count: {:x}", descriptor_size -1);
                 }
             }
-            
         }
 
         output
@@ -954,8 +979,8 @@ impl AhciController {
             let mut descriptor_count: u32;
             //info!("byte count ist: {:?}", byte_count);
             //info!("berechne descriptor_count: {:?}", byte_count / 4096);
-            let full_amt: u32 = byte_count / (4*1024*1024);
-            let rest = byte_count % (4*1024*1024);
+            let full_amt: u32 = byte_count / (BIGDESCRIPTOR);
+            let rest = byte_count % (BIGDESCRIPTOR);
             //info!("full amt is {} and rest ist {}", full_amt, rest);
             if rest != 0 {
                 descriptor_count = full_amt + 1;
@@ -963,14 +988,12 @@ impl AhciController {
                 descriptor_count = full_amt;
             }
 
-
             let descriptors_per_page = 4096 / size_of::<HbaPhysicalRegionDescriptorTableEntry>();
 
+            let allocated_space_for_descriptors =
+                ((descriptor_count / descriptors_per_page as u32) + 1);
 
-            let allocated_space_for_descriptors = ((descriptor_count / descriptors_per_page as u32) + 1);
-
-            let prdt_frames =
-                frames::alloc( allocated_space_for_descriptors as usize);
+            let prdt_frames = frames::alloc(allocated_space_for_descriptors as usize);
             let prdt_start_addr = prdt_frames.start.start_address().as_u64();
 
             let mut cmd_table = self.create_hba_cmd_table(
@@ -984,8 +1007,8 @@ impl AhciController {
 
             // info!("byte count in read to device ist {}", byte_count);
             let mut physical_region_descriptor_table_length;
-            let full_amt = byte_count / (4096*1024);
-            let rest = byte_count % (4096*1024);
+            let full_amt = byte_count / (BIGDESCRIPTOR);
+            let rest = byte_count % (BIGDESCRIPTOR);
             if rest != 0 {
                 physical_region_descriptor_table_length = full_amt + 1;
             } else {
@@ -999,7 +1022,7 @@ impl AhciController {
                 atapi = 1;
             }
             //zerteile die Adresse
-            let cmd_table_base_addr: u64 = prdt_start_addr;//cmd_table as u64;
+            let cmd_table_base_addr: u64 = prdt_start_addr; //cmd_table as u64;
             let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
             let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
 
@@ -1015,12 +1038,22 @@ impl AhciController {
 
             (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
             (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
-            (*first_cmd_header).physicalRegionDescriptorByteCount = byte_count;
+            (*first_cmd_header).physicalRegionDescriptorByteCount = 0; //byte_count;
 
             //info!("read issue command");
             let success = (*port).issueCommand(slot as u32);
             if !success {
                 info!("ERR: issueCommand hatte einen Fehler")
+            }
+
+            // schreibe in die prdt 0, damit der Speicher nicht komisch wird
+
+            let mut prdt_sl = core::slice::from_raw_parts_mut(
+                prdt_start_addr as *mut u8,
+                allocated_space_for_descriptors as usize,
+            );
+            for i in 0..prdt_sl.len() {
+                prdt_sl[i] = 0;
             }
             frames::free(prdt_frames);
 
@@ -1039,97 +1072,103 @@ impl AhciController {
         let mut port = (self.ports_start as *mut HbaPort).offset(portnr.try_into().unwrap());
         let mut command_list_addr = (*port).commandListBaseAddress as u64
             | (((*port).commandListBaseAddressUpper as u64) << 32);
-            // weil ich nur bisher einen cmd_header in der Liste habe, kann ich da direkt reinschreiben
-            let mut first_cmd_header = Self::get_cmd_table_header(command_list_addr as *mut u8);
-            //die command List besteht aus cmd_table_headern, welche selbst dann auf die command Table verweisen
-            //info!("###########command fis read ist {:?}", command_fis);
-            if Self::check_port_usable(port) != true {
-                info!("ERR: Port is not usable");
-                return false;
-            }
+        // weil ich nur bisher einen cmd_header in der Liste habe, kann ich da direkt reinschreiben
+        let mut first_cmd_header = Self::get_cmd_table_header(command_list_addr as *mut u8);
+        //die command List besteht aus cmd_table_headern, welche selbst dann auf die command Table verweisen
+        //info!("###########command fis read ist {:?}", command_fis);
+        if Self::check_port_usable(port) != true {
+            info!("ERR: Port is not usable");
+            return false;
+        }
 
-            let slot = self.find_cmd_slot(port);
-            if slot == -1 {
-                info!("ERR: Slot nicht gefunden");
-                return false;
-            }
+        let slot = self.find_cmd_slot(port);
+        if slot == -1 {
+            info!("ERR: Slot nicht gefunden");
+            return false;
+        }
 
-            // hier wird nur die command table gemacht, nicht die command list
-            //berechne, wie viele descriptoren benötigt werden
-            let mut descriptor_count: u32;
-            //info!("byte count ist: {:?}", byte_count);
-            //info!("berechne descriptor_count: {:?}", byte_count / 4096);
-            let full_amt: u32 = byte_count / (4*1024*1024);
-            let rest = byte_count % (4*1024*1024);
-            //info!("full amt is {} and rest ist {}", full_amt, rest);
-            if rest != 0 {
-                descriptor_count = full_amt + 1;
-            } else {
-                descriptor_count = full_amt;
-            }
+        // hier wird nur die command table gemacht, nicht die command list
+        //berechne, wie viele descriptoren benötigt werden
+        let mut descriptor_count: u32;
+        //info!("write byte count ist: {:?}", byte_count);
+        //info!("berechne descriptor_count: {:?}", byte_count / 4096);
+        let full_amt: u32 = byte_count / (BIGDESCRIPTOR);
+        let rest = byte_count % (BIGDESCRIPTOR);
+        //info!("full amt is {} and rest ist {}", full_amt, rest);
+        if rest != 0 {
+            descriptor_count = full_amt + 1;
+        } else {
+            descriptor_count = full_amt;
+        }
 
+        let descriptors_per_page = 4096 / size_of::<HbaPhysicalRegionDescriptorTableEntry>();
+        //info!("es passen {} Descriptors auf eine page", descriptors_per_page);
 
-            let descriptors_per_page = 4096 / size_of::<HbaPhysicalRegionDescriptorTableEntry>();
+        let allocated_space_for_descriptors =
+            ((descriptor_count / descriptors_per_page as u32) + 1) as u64;
 
+        //info!("allocate beim Schreiben {} pages für {} descriptors", allocated_space_for_descriptors, descriptor_count);
 
-            let allocated_space_for_descriptors = ((descriptor_count / descriptors_per_page as u32) + 1);
+        let prdt_frames = frames::alloc(allocated_space_for_descriptors as usize);
+        let prdt_start_addr = prdt_frames.start.start_address().as_u64();
 
-            let prdt_frames =
-                frames::alloc( allocated_space_for_descriptors as usize);
-            let prdt_start_addr = prdt_frames.start.start_address().as_u64();
+        let mut cmd_table =
+            self.create_hba_cmd_table(byte_count, physical_dma, prdt_start_addr, descriptor_count);
+        (*cmd_table).commandFis = command_fis.clone();
+        (*cmd_table).atapiCommand = atapi_command.clone();
 
-            let mut cmd_table = self.create_hba_cmd_table(
-                byte_count,
-                physical_dma,
-                prdt_start_addr,
-                descriptor_count,
-            );
-            (*cmd_table).commandFis = command_fis.clone();
-            (*cmd_table).atapiCommand = atapi_command.clone();
+        // info!("byte count in read to device ist {}", byte_count);
+        let mut physical_region_descriptor_table_length;
+        let full_amt = byte_count / (BIGDESCRIPTOR);
+        let rest = byte_count % (BIGDESCRIPTOR);
+        if rest != 0 {
+            physical_region_descriptor_table_length = full_amt + 1;
+        } else {
+            physical_region_descriptor_table_length = full_amt;
+        }
 
-            // info!("byte count in read to device ist {}", byte_count);
-            let mut physical_region_descriptor_table_length;
-            let full_amt = byte_count / (4096*1024);
-            let rest = byte_count % (4096*1024);
-            if rest != 0 {
-                physical_region_descriptor_table_length = full_amt + 1;
-            } else {
-                physical_region_descriptor_table_length = full_amt;
-            }
+        //nachschauen, wie ich auf diese Größen komme
+        let mut cmd_fis_len = size_of::<FisRegisterHostToDevice>() / size_of::<u32>();
+        let mut atapi = 0; //atapi ist 0 weil id device für ata und atapi geräte universell ist
+        if atapi_command[0] != 0 {
+            atapi = 1;
+        }
+        let write = 1;
+        //zerteile die Adresse
+        let cmd_table_base_addr: u64 = prdt_start_addr; //cmd_table as u64;
+        let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
+        let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
 
-            //nachschauen, wie ich auf diese Größen komme
-            let mut cmd_fis_len = size_of::<FisRegisterHostToDevice>() / size_of::<u32>();
-            let mut atapi = 0; //atapi ist 0 weil id device für ata und atapi geräte universell ist
-            if atapi_command[0] != 0 {
-                atapi = 1;
-            }
-            let write = 1;
-            //zerteile die Adresse
-            let cmd_table_base_addr: u64 = prdt_start_addr;//cmd_table as u64;
-            let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
-            let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
+        //Feld first zusammenbauen (atapi, cmd_fis_len und prdt_len)
+        // atapi ist 0, weil es ein ata Befehl ist
+        // cmd_fis_len ist 5
+        //prdt_len ist 1 (weil nur eine prdt benötigt wird)
+        let dword0 = (physical_region_descriptor_table_length << 16) as u32
+            | (atapi << 5) as u32
+            | (write << 6) as u32
+            | cmd_fis_len as u32;
+        (*first_cmd_header).dword0 = dword0;
+        //info!("dword0 im read ist ist {:b}", dword0);
 
-            //Feld first zusammenbauen (atapi, cmd_fis_len und prdt_len)
-            // atapi ist 0, weil es ein ata Befehl ist
-            // cmd_fis_len ist 5
-            //prdt_len ist 1 (weil nur eine prdt benötigt wird)
-            let dword0 = (physical_region_descriptor_table_length << 16) as u32
-                | (atapi << 5) as u32
-                | (write << 6) as u32
-                | cmd_fis_len as u32;
-            (*first_cmd_header).dword0 = dword0;
-            //info!("dword0 im read ist ist {:b}", dword0);
+        (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
+        (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
+        (*first_cmd_header).physicalRegionDescriptorByteCount = 0; //byte_count;
 
-            (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
-            (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
-            (*first_cmd_header).physicalRegionDescriptorByteCount = byte_count;
+        //info!("read issue command");
+        let success = (*port).issueCommand(slot as u32);
+        if !success {
+            info!("ERR: issueCommand hatte einen Fehler")
+        }
+        // schreibe in die prdt 0, damit der Speicher nicht komisch wird
 
-            //info!("read issue command");
-            let success = (*port).issueCommand(slot as u32);
-            if !success {
-                info!("ERR: issueCommand hatte einen Fehler")
-            }
-            frames::free(prdt_frames);
+        let mut prdt_sl = core::slice::from_raw_parts_mut(
+            prdt_start_addr as *mut u8,
+            allocated_space_for_descriptors as usize,
+        );
+        for i in 0..prdt_sl.len() {
+            prdt_sl[i] = 0;
+        }
+        frames::free(prdt_frames);
         return true;
     }
 
@@ -1335,7 +1374,6 @@ impl AhciController {
             let end_time = sys_get_system_time();
             write_time = write_time + (end_time - start_time);
             frames::free(write_region);
-
         }
         count
     }
@@ -1631,7 +1669,7 @@ impl AhciController {
                 read_times.push(single_result);
                 amt_success += 1;
             }
-            info!("read done {}", i);
+            //nfo!("read done {}", i);
         }
         info!(
             "finished read benchmark, with {} sectors in a sequence and {} repetitions",
@@ -1652,7 +1690,7 @@ impl AhciController {
         let q9 = &read_times[80..90];
         let q10 = &read_times[90..100];
         info!(
-            "die Zeiten des read Benchmarks sind: \n{:?}\n {:?}\n {:?} \n {:?} \n {:?}\n {:?}\n {:?}\n {:?} \n {:?} \n {:?}",
+            "die Zeiten des read Benchmarks sind: \n{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}",
             q1, q2, q3, q4, q5, q6, q7, q8, q9, q10
         );
         frames::free(single_region);
@@ -1661,10 +1699,10 @@ impl AhciController {
     pub unsafe fn benchmark_random_read(&self, repetitions: u32, port_nr: u32) -> isize {
         //repetitions should be a multiple of 10
         // all benchmarks on hdd.img
-        info!(
+        /*info!(
             "start random read benchmark, with one sector at a random position and {} repetitions",
             repetitions
-        );
+        );*/
         let id_device = self.identify_device(port_nr);
         let mut full_time_ms = 0;
 
@@ -1681,14 +1719,14 @@ impl AhciController {
             let single_result = self.benchmark_random_single_read(fitting_pos, &id_device, port_nr);
             full_time_ms += single_result;
         }
-        info!(
+        /*info!(
             "finished random read benchmark, with one sector at a random position and {} repetitions",
             repetitions
         );
         info!(
             "managed to read with a complete time of {} ms",
             full_time_ms
-        );
+        );*/
         full_time_ms
     }
 
@@ -1771,7 +1809,7 @@ impl AhciController {
                 amt_success += 1;
                 write_times.push(single_result);
             }
-           info!("write done {}", i);
+            //info!("write done {}", i);
         }
         info!(
             "finished write benchmark, with {} sectors in a sequence and {} repetitions",
@@ -1792,7 +1830,7 @@ impl AhciController {
         let q9 = &write_times[80..90];
         let q10 = &write_times[90..100];
         info!(
-            "die Zeiten des write Benchmarks sind: \n{:?}\n {:?}\n {:?} \n {:?} \n {:?}\n {:?}\n {:?}\n {:?} \n {:?} \n {:?}",
+            "die Zeiten des write Benchmarks sind: \n{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}",
             q1, q2, q3, q4, q5, q6, q7, q8, q9, q10
         );
         //info!("die Zeiten des write Benchmarks sind: {:?}", write_times);
@@ -1801,10 +1839,10 @@ impl AhciController {
     pub unsafe fn benchmark_random_write(&self, repetitions: u32, port_nr: u32) -> isize {
         //repetitions should be a multiple of 10
         // all benchmarks on hdd.img
-        info!(
-            "start random read benchmark, with one sector at a random position and {} repetitions",
+        /*info!(
+            "start random write benchmark, with one sector at a random position and {} repetitions",
             repetitions
-        );
+        );*/
         let id_device = self.identify_device(port_nr);
         let mut full_time_ms = 0;
 
@@ -1822,14 +1860,14 @@ impl AhciController {
                 self.benchmark_random_single_write(fitting_pos, &id_device, port_nr);
             full_time_ms += single_result;
         }
-        info!(
+        /*info!(
             "finished random write benchmark, with one sector at a random position and {} repetitions",
             repetitions
         );
         info!(
             "managed to write with a complete time of {} ms",
             full_time_ms
-        );
+        );*/
         full_time_ms
     }
 
@@ -1841,23 +1879,13 @@ impl HbaPort {
     pub fn issueCommand(&mut self, slot: u32) -> bool {
         // Wait while device is busy
         const COMMAND_TIMEOUT: isize = 10000;
+        const BIG_TIMEOUT: isize = 50000;
         const BUSY: u32 = 128;
         const DATA_TRANSFER_REQUESTED: u32 = 8;
         const TASK_FILE_ERROR: u32 = 1 << 30;
         let mut timeout = sys_get_system_time() + COMMAND_TIMEOUT;
 
-        while (self.taskFileData & (BUSY | DATA_TRANSFER_REQUESTED)) > 0 {
-            if (sys_get_system_time() >= timeout) {
-                info!("system timeout 1");
-                return false;
-            }
-            scheduler().switch_thread_no_interrupt();
-        }
-
-        // Issue command
-        self.commandIssue = 1 << slot;
-
-        info!("issue command vor der zweiten Schleife");
+        /*info!("issue command vor der ersten Schleife");
         let cmd = self.command;
         let sata_stat = self.sataStatus;
         let sata_err = self.sataError;
@@ -1867,17 +1895,41 @@ impl HbaPort {
         info!("sata status war: {}", sata_stat);
         info!("sata error war: {}", sata_err);
         info!("task file data war: {}", tfd);
-        info!("interrupt status war: {}", interrupt_stat);
+        info!("interrupt status war: {}", interrupt_stat);*/
+
+        while (self.taskFileData & (BUSY | DATA_TRANSFER_REQUESTED)) > 0 {
+            if (sys_get_system_time() >= timeout) {
+                info!("system timeout 1");
+                return false;
+            }
+            scheduler().switch_thread_no_interrupt();
+        }
+        //info!("das System kann nicht mehr busy sein");
+
+        // Issue command
+        self.commandIssue = 1 << slot;
+
+        /*info!("issue command vor der zweiten Schleife");
+        let cmd = self.command;
+        let sata_stat = self.sataStatus;
+        let sata_err = self.sataError;
+        let tfd = self.taskFileData;
+        let interrupt_stat = self.interruptStatus;
+        info!("command war: {}", cmd);
+        info!("sata status war: {}", sata_stat);
+        info!("sata error war: {}", sata_err);
+        info!("task file data war: {}", tfd);
+        info!("interrupt status war: {}", interrupt_stat);*/
 
         // Wait for command completion
-        timeout = sys_get_system_time() + COMMAND_TIMEOUT;
+        timeout = sys_get_system_time() + BIG_TIMEOUT;
         while true {
             let test = self.sataError;
-            
+
             if ((self.commandIssue & (1 << slot)) == 0) {
                 //info!("issue command success");
                 // hier müssen noch die interrupt bits zurückgesetzt werden:
-                self.interruptStatus = self.interruptStatus | 1<<5;
+                self.interruptStatus = self.interruptStatus | 1 << 5;
                 self.interruptStatus & 0xfffffffe;
                 break;
             }
@@ -1885,14 +1937,14 @@ impl HbaPort {
             //https://www.dgway.com/products/IP/SATA-IP/dg_sataahciip_refdesign_en/
             //setze hier den descriptor auf bearbeitet:
             // nachdem ein interrupt kam bedeutet das, dass der descriptor fertig bearbeitet wurde
-            if self.interruptStatus & 1 == 1{
+            /*if self.interruptStatus & 1 == 1{
                 self.interruptStatus = self.interruptStatus | 1<<5;
                 //info!("############# doing the interrupt stuff")
-            }
+            }*/
 
             if (self.interruptStatus & TASK_FILE_ERROR) > 0 {
                 info!("interrupt status and task file error");
-                let cmd = self.command;
+                /*let cmd = self.command;
                 let sata_stat = self.sataStatus;
                 let sata_err = self.sataError;
                 let tfd = self.taskFileData;
@@ -1901,12 +1953,12 @@ impl HbaPort {
                 info!("sata status war: {}", sata_stat);
                 info!("sata error war: {}", sata_err);
                 info!("task file data war: {}", tfd);
-                info!("interrupt status war: {}", interrupt_stat);
+                info!("interrupt status war: {}", interrupt_stat);*/
                 return false;
             }
 
             if (sys_get_system_time() >= timeout) {
-                info!("issue command ist im timeout");
+                /*info!("issue command ist im timeout");
                 let cmd = self.command;
                 let sata_stat = self.sataStatus;
                 let sata_err = self.sataError;
@@ -1916,7 +1968,7 @@ impl HbaPort {
                 info!("sata status war: {}", sata_stat);
                 info!("sata error war: {}", sata_err);
                 info!("task file data war: {}", tfd);
-                info!("interrupt status war: {}", interrupt_stat);
+                info!("interrupt status war: {}", interrupt_stat);*/
                 info!("system timeout 2");
                 return false;
             }
