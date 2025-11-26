@@ -56,7 +56,7 @@ const ATAPI_READ_CAPACITY: u8 = 0x25;
 
 //sektorgroesse
 const SEKTORGROESSE: u32 = 512;
-const SEKTORZAHL: usize = 8 * 8; //eigentlich technisch möglich: 8*1024*64*1024
+const SEKTORZAHL: usize = 8 * 8;        //8*8*1024 on qemu or small descriptor sizes
 const SMALLDESCRIPTOR: u32 = 4 * 1024;
 const BIGDESCRIPTOR: u32 = 4 * 1024 * 1024;
 
@@ -389,7 +389,7 @@ pub fn init() {
         ahci_controller.check_nr_of_command_slots();
 
         // hier wird in den Speicher geschrieben/ gelesen
-        /*info!("Start des Experimentes");
+       /*  info!("Start des Experimentes");
         let portnr = 0;
         let test_add = 0;
         let sector_count = SEKTORZAHL + test_add;
@@ -447,19 +447,19 @@ pub fn init() {
         ahci_controller.benchmark_write(1024 * 20, 100, 0);
 
         ahci_controller.benchmark_read(1024 * 40, 100, 0);
-        ahci_controller.benchmark_write(1024 * 40, 100, 0);
+        ahci_controller.benchmark_write(1024 * 40, 100, 0);*/
 
         ahci_controller.benchmark_read(1024 * 100, 100, 0);
         ahci_controller.benchmark_write(1024 * 100, 100, 0);
 
-        ahci_controller.benchmark_read(1024 * 1024 * 1, 100, 0);
+        /*ahci_controller.benchmark_read(1024 * 1024 * 1, 100, 0);
         ahci_controller.benchmark_write(1024 * 1024 * 1, 100, 0);*/
 
         //ahci_controller.benchmark_read(1024 * 1024*5, 100, 0);
 
         //ahci_controller.benchmark_random_read(5, 1);
         //ahci_controller.benchmark_random_write(5, 1);
-        let mut read_times: Vec<isize> = Vec::new();
+        /*let mut read_times: Vec<isize> = Vec::new();
         let mut write_times: Vec<isize> = Vec::new();
 
         for i in 0..100 {
@@ -505,7 +505,7 @@ pub fn init() {
         info!(
             "die Zeiten des write Benchmarks sind: \n{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}",
             wq1, wq2, wq3, wq4, wq5, wq6, wq7, wq8, wq9, wq10
-        );
+        );*/
 
         /*for value in w100k{
             info!("{:?}", value);
