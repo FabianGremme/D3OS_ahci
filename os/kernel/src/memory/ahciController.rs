@@ -374,7 +374,7 @@ pub fn init() {
         }
         info!("identifiziere alle ports");
         ahci_controller.test_identify_all_ports();
-        // ahci_controller.init_all_ports_as_block_devices();
+        ahci_controller.init_all_ports_as_block_devices();
         // hier gibt es pointer copy nonoverlapping Probleme
 
         info!("check if ports have ata");
@@ -449,8 +449,8 @@ pub fn init() {
         ahci_controller.benchmark_read(1024 * 40, 100, 0);
         ahci_controller.benchmark_write(1024 * 40, 100, 0);*/
 
-        ahci_controller.benchmark_read(1024 * 100, 100, 0);
-        ahci_controller.benchmark_write(1024 * 100, 100, 0);//
+        //ahci_controller.benchmark_read(1024 * 100, 100, 0);
+        //ahci_controller.benchmark_write(1024 * 100, 100, 0);//
 
         /*ahci_controller.benchmark_read(1024 * 1024 * 1, 100, 0);
         ahci_controller.benchmark_write(1024 * 1024 * 1, 100, 0);*/
@@ -1261,17 +1261,12 @@ impl AhciController {
     //diese Funktionen soll dann auch von Block Device ausgeführt werden
     unsafe fn read(
         &self,
-        sector: u64,
+        start_sector: u64,
         count: usize,
         buffer: &mut [u8],
         portnr: u32,
         id_device: &DeviceInfo,
     ) -> usize {
-        //sector ist der Startsektor
-        //count ist die Anzahl der Sektoren
-        // in buffer soll reingeschrieben werden
-        //output ist die Anzahl an Sektoren
-
         let mut read_reps = count / SEKTORZAHL;
         let read_rest = count % SEKTORZAHL;
 
@@ -1279,12 +1274,15 @@ impl AhciController {
             read_reps = read_reps + 1;
         }
 
+        //info!("read reps ist: {} und read rest ist {}", read_reps, read_rest);
+        let mut current_offset = 0;
+
         for i in 0..read_reps {
             let mut sector_size = id_device.bytesPerSector;
             if sector_size == 0 {
                 sector_size = 512;
             }
-            let remaining = count - i * SEKTORZAHL;
+            let remaining = count - (i * SEKTORZAHL);
 
             let mut sector_count = remaining;
 
@@ -1292,7 +1290,8 @@ impl AhciController {
                 sector_count = SEKTORZAHL;
             }
 
-            let read_bytes: u64 = (sector_size as u32 * SEKTORZAHL as u32) as u64;
+            let read_bytes: u64 = (sector_size as usize * sector_count) as u64;
+            //info!("alloc from test_read, mit sector count {}", sector_count);
             let region_buffer = AhciController::allocate_heap_region(read_bytes);
             let region_buffer_addr = region_buffer.start.start_address().as_u64();
             let max_capacity = id_device.lbaCapacity.try_into().unwrap();
@@ -1301,13 +1300,23 @@ impl AhciController {
                 max_capacity,
                 TransferMode::READ,
                 region_buffer_addr,
-                (i * SEKTORZAHL) as u64 + sector,
+                start_sector + (i * SEKTORZAHL) as u64,
                 sector_count as u32,
             );
 
-            let mut region_ptr = region_buffer.start.start_address().as_u64() as *mut u8;
-            let buffer_pos = buffer.as_mut_ptr().offset((i * SEKTORZAHL) as isize);
+            let mut region_ptr = region_buffer_addr as *mut u8;
+            let mybuffer = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
+            /*for i in 0..mybuffer.len(){
+                if mybuffer[i] != 5{
+                    info!("Es scheitert schon in den test read!!");
+                    break;
+                }
+            }*/
+
+            let buffer_pos = buffer.as_mut_ptr().offset(current_offset);
             ptr::copy_nonoverlapping(region_ptr, buffer_pos, read_bytes as usize);
+
+            current_offset = current_offset + read_bytes as isize;
 
             frames::free(region_buffer);
         }
@@ -1316,23 +1325,18 @@ impl AhciController {
 
     unsafe fn write(
         &self,
-        sector: u64,
+        start_sector: u64,
         count: usize,
         buffer: &[u8],
         portnr: u32,
         id_device: &DeviceInfo,
     ) -> usize {
-        if portnr == 0 {
-            //  info!("Achtung es wird ins Bootimage geschrieben!");
-        }
-
         let mut write_reps = count / SEKTORZAHL;
         let write_rest = count % SEKTORZAHL;
 
         if write_rest != 0 {
             write_reps = write_reps + 1;
         }
-        let mut write_time: isize = 0;
         for i in 0..write_reps {
             let mut sector_size = id_device.bytesPerSector;
             if sector_size == 0 {
@@ -1367,12 +1371,10 @@ impl AhciController {
                 max_capacity,
                 TransferMode::WRITE,
                 write_region_addr,
-                sector + (i * SEKTORZAHL) as u64,
+                start_sector + (i * SEKTORZAHL) as u64,
                 sector_count as u32,
             );
             //  info!("help ist {}", help);
-            let end_time = sys_get_system_time();
-            write_time = write_time + (end_time - start_time);
             frames::free(write_region);
         }
         count
@@ -1381,10 +1383,13 @@ impl AhciController {
     pub unsafe fn init_all_ports_as_block_devices(&self) {
         let amt_port = self.check_cap_nr_of_ports();
         for i in 0..amt_port - 1 {
+            info!("arbeite an Port {}", i);
             let current_port = (self.ports_start as *mut HbaPort).offset(i.try_into().unwrap());
             info!("init Port {} as block device", i);
             if Self::check_port_usable(current_port) {
+                info!("port {} ist nutzbar", i);
                 let ahci_drive = Arc::new(AHCIDrive::new(Arc::new(self.clone()), i));
+                info!("vor dem add");
                 add_block_device("ata", ahci_drive);
             }
         }
