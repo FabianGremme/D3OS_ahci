@@ -56,7 +56,7 @@ const ATAPI_READ_CAPACITY: u8 = 0x25;
 
 //sektorgroesse
 const SEKTORGROESSE: u32 = 512;
-const SEKTORZAHL: usize = 8 * 8;        //8*8*1024 on qemu or small descriptor sizes
+const SEKTORZAHL: usize = 8*9*1024;        //8*8*1024 on qemu or small descriptor sizes
 const SMALLDESCRIPTOR: u32 = 4 * 1024;
 const BIGDESCRIPTOR: u32 = 4 * 1024 * 1024;
 
@@ -389,8 +389,8 @@ pub fn init() {
         ahci_controller.check_nr_of_command_slots();
 
         // hier wird in den Speicher geschrieben/ gelesen
-       /*  info!("Start des Experimentes");
-        let portnr = 0;
+        info!("Start des Experimentes");
+        let portnr = 1;
         let test_add = 0;
         let sector_count = SEKTORZAHL + test_add;
         let id_device1 = ahci_controller.identify_device(portnr);
@@ -400,7 +400,7 @@ pub fn init() {
 
         info!("teste write");
 
-        ahci_controller.test_write(portnr, 0, sector_count, 5, &id_device1);
+        ahci_controller.test_write(portnr, 0, sector_count, 6, &id_device1);
         //info!("try_id_device afterwards");
         let id_device2 = ahci_controller.identify_device(portnr);
 
@@ -417,7 +417,7 @@ pub fn init() {
         let mut success = true;
         let mut bad_counter = 0;
         for i in 0..buffer.len() {
-            if buffer[i] != 5 {
+            if buffer[i] != 6 {
                 info!("gelesen wurde: {}, an Stelle {}", &buffer[i], i);
                 success = false;
                 bad_counter += 1;
@@ -427,11 +427,8 @@ pub fn init() {
         info!(
             "das lesen war {}, mit {} Bytes die nicht 5 waren",
             success, bad_counter
-        );*/
+        );
 
-        //ahci_controller.test_write(portnr, 0, sector_count, 2, &id_device1);
-
-        //ahci_controller.benchmark_random_read(1000, 1);
 
         // alle sequenziellen Benchmarks
         /*ahci_controller.benchmark_read(200, 100, 0);
@@ -456,8 +453,7 @@ pub fn init() {
         ahci_controller.benchmark_write(1024 * 1024 * 1, 100, 0);*/
 
 
-        //ahci_controller.benchmark_random_read(5, 1);
-        //ahci_controller.benchmark_random_write(5, 1);
+
         /*let mut read_times: Vec<isize> = Vec::new();
         let mut write_times: Vec<isize> = Vec::new();
 
@@ -509,10 +505,6 @@ pub fn init() {
         /*for value in w100k{
             info!("{:?}", value);
         }*/
-        // bei 100  16% nicht gelesen
-        //bei 1000 wir 2/125 nicht gelesen
-        //bei 10000 wird das erste Achtel nicht gelesen
-        //ahci_controller.benchmark_random_write(100, 1);
     }
 }
 
@@ -1933,8 +1925,8 @@ impl HbaPort {
             if ((self.commandIssue & (1 << slot)) == 0) {
                 //info!("issue command success");
                 // hier müssen noch die interrupt bits zurückgesetzt werden:
-                self.interruptStatus = self.interruptStatus | 1 << 5;
-                self.interruptStatus & 0xfffffffe;
+                //self.interruptStatus = self.interruptStatus | 1 << 5;
+                //self.interruptStatus & 0xfffffffe;
                 break;
             }
 
@@ -1962,8 +1954,8 @@ impl HbaPort {
             }
 
             if (sys_get_system_time() >= timeout) {
-                /*info!("issue command ist im timeout");
-                let cmd = self.command;
+                info!("issue command ist im timeout");
+                /*let cmd = self.command;
                 let sata_stat = self.sataStatus;
                 let sata_err = self.sataError;
                 let tfd = self.taskFileData;
