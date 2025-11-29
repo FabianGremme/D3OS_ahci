@@ -453,7 +453,7 @@ pub fn init() {
         ahci_controller.benchmark_write(1024 * 100, 100, 0);
 
         ahci_controller.benchmark_read(1024 * 1024 * 1, 100, 0);
-        ahci_controller.benchmark_write(1024 * 1024 * 1, 100, 0);*///
+        ahci_controller.benchmark_write(1024 * 1024 * 1, 100, 0);*/
 
 
         //ahci_controller.benchmark_random_read(5, 1);
