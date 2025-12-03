@@ -790,7 +790,7 @@ impl AhciController {
     }
     /*
     identify the device with its given port number
-    the DeviceInfo struct contains all info about the device
+    the device info struct contains all info about the device
      */
 
     pub unsafe fn identify_device(&self, portnr: u32) -> DeviceInfo {
@@ -1135,7 +1135,7 @@ impl AhciController {
 
     portnr is the number of the port on which the access needs to take place
     max_capacity is the amount of sectors provided by the device
-        this value can be found in the DeviceInfo
+        this value can be found in the device info
     mode is the toggle between read and write
     buffer_addr is the address of the dma region where the results should be written into, or the data to write is
     start_sector is the number of the sector where the access should start
@@ -1224,7 +1224,7 @@ impl AhciController {
     count is the amount of sectors to access
     buffer is the region where the result is written to
     portnr is the number of the port to access
-    id_device is the DeviceInfo of the device to access
+    id_device is the device info of the device to access
      */
     unsafe fn read(
         &self,
@@ -1298,7 +1298,7 @@ impl AhciController {
     count is the amount of sectors to access
     buffer is the region where the data to write is
     portnr is the number of the port to access
-    id_device is the DeviceInfo of the device to access
+    id_device is the device info of the device to access
      */
     unsafe fn write(
         &self,
@@ -1389,8 +1389,8 @@ impl AhciController {
     *****************************************************************************************************************************/
 
     /*
-    test if the deviceInfo from the identify_device function is correct by looking at the model, firmware and serial number
-    if these values are correct, all the other values of the deviceInfo struct must be correct
+    test if the device info from the identify_device function is correct by looking at the model, firmware and serial number
+    if these values are correct, all the other values of the device info struct must be correct
     */
     unsafe fn test_identify_device_on_port(&self, portnr: u32) {
         let id_device = self.identify_device(portnr);
@@ -1423,7 +1423,7 @@ impl AhciController {
     count is the amount of sectors to access
     buffer is the region where the result is written to
     portnr is the number of the port to access
-    id_device is the DeviceInfo of the device to access
+    id_device is the device info of the device to access
      */
     unsafe fn test_read(
         &self,
@@ -1498,7 +1498,7 @@ impl AhciController {
     count is the amount of sectors to access
     nr_to_write is the number that should be written into the sectors
         ->difference to write function    
-    id_device is the DeviceInfo of the device to access
+    id_device is the device info of the device to access
      */
     unsafe fn test_write(
         &self,
@@ -1600,7 +1600,7 @@ impl AhciController {
 
     sector_count is the number of sectors to read
     correct_arr is the expected result
-    id_device is the DeviceInfo needed for the driver
+    id_device is the device info needed for the driver
     port_nr is the port number where the read should take place
 
     if the read sectors does not fit with the correct array, it returns -1
@@ -1662,15 +1662,15 @@ impl AhciController {
     one read at a random given position
     because this type of benchmark only gets testet after the sequential one is done, we can assume that the read sectors are correct
 
-    position is the random sector number selected for the read access
-    id_device is the DeviceInfo needed for the driver
+    start_sector is the random sector number selected for the read access
+    id_device is the device info needed for the driver
     port_nr is the number of the port where the read should take place
-    
+
      */
 
     pub unsafe fn benchmark_random_single_read(
         &self,
-        position: u64,
+        start_sector: u64,
         id_device: &DeviceInfo,
         port_nr: u32,
     ) -> isize {
@@ -1686,7 +1686,7 @@ impl AhciController {
         let start_time = sys_get_system_time();
 
         //perform the read using the driver
-        let read_bytes = self.test_read(position, 1, buffer, port_nr, id_device);
+        let read_bytes = self.test_read(start_sector, 1, buffer, port_nr, id_device);
 
         //end timer
         let end_time = sys_get_system_time();
@@ -1698,7 +1698,13 @@ impl AhciController {
         (end_time - start_time) as isize
     }
 
+    /*
+    the complete benchmark in the sequential scenario
 
+    sector_count is the number of sectors to read
+    repetitions should be 100, else the time splitting at the end need ajustment
+    port_nr is the port number the access takes place
+     */
 
     pub unsafe fn benchmark_read(&self, sector_count: u32, repetitions: u32, port_nr: u32) {
          info!(
@@ -1708,20 +1714,25 @@ impl AhciController {
 
         let mut read_times: Vec<isize> = Vec::new();
 
+        //get the device info
         let id_device = self.identify_device(port_nr);
-        let sector_size = 512; //id_device.bytesPerSector;
+
+        //create the memory region for the expected result
+        let sector_size = SEKTORGROESSE; 
         let read_bytes: u64 = (sector_size * sector_count) as u64;
         let single_region = AhciController::allocate_heap_region(read_bytes);
         info!("allocate buffer with {} bytes in size", read_bytes);
         let single_region_ptr = single_region.start.start_address().as_u64() as *mut u8;
         let buffer = core::slice::from_raw_parts_mut(single_region_ptr, read_bytes as usize);
 
+        //get the expected result
         let correct_read_bytes =
             self.test_read(0, sector_count as usize, buffer, port_nr, &id_device);
 
         let mut full_time_ms = 0;
         let mut amt_success = 0;
 
+        //test the sequential reading against the expected result
         for i in 0..repetitions {
             let single_result =
                 self.benchmark_check_single_read(sector_count, &buffer, &id_device, port_nr);
@@ -1730,8 +1741,8 @@ impl AhciController {
                 read_times.push(single_result);
                 amt_success += 1;
             }
-            //nfo!("read done {}", i);
         }
+
         info!(
             "finished read benchmark, with {} sectors in a sequence and {} repetitions",
             sector_count, repetitions
@@ -1740,6 +1751,8 @@ impl AhciController {
             "managed to read {} of {} times successfully with a complete time of {} ms",
             amt_success, repetitions, full_time_ms
         );
+
+        //split the 100 repetitions so minicom shows every single value 
         let q1 = &read_times[0..10];
         let q2 = &read_times[10..20];
         let q3 = &read_times[20..30];
@@ -1750,24 +1763,33 @@ impl AhciController {
         let q8 = &read_times[70..80];
         let q9 = &read_times[80..90];
         let q10 = &read_times[90..100];
+
+        //print the results in 10 rows so there is enough space for every result
         info!(
             "die Zeiten des read Benchmarks sind: \n{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}",
             q1, q2, q3, q4, q5, q6, q7, q8, q9, q10
         );
+
+        //free the result memory region since it is no longer needed
         frames::free(single_region);
     }
 
+    /*
+    the complete random read benchmark
+
+    repetitions is the number of repetitions wanted
+    port_nr is the port number the access takes place
+     */
+
     pub unsafe fn benchmark_random_read(&self, repetitions: u32, port_nr: u32) -> isize {
-        //repetitions should be a multiple of 10
-        // all benchmarks on hdd.img
-        /*info!(
+        info!(
             "start random read benchmark, with one sector at a random position and {} repetitions",
             repetitions
-        );*/
+        );
         let id_device = self.identify_device(port_nr);
         let mut full_time_ms = 0;
 
-        //generate the random nr_generator using a fixed seed
+        //generate the random number generator using a fixed seed
         let mut small_rng = SmallRng::seed_from_u64(5);
 
         for i in 0..repetitions {
@@ -1776,22 +1798,34 @@ impl AhciController {
             let rand_pos = small_rng.next_u64();
             let max_amt_of_sectors = (id_device.lbaCapacity - 1) as u64;
             let fitting_pos = max_amt_of_sectors & rand_pos;
+
             //read one sector at the random position
+            //the single random read function already does the timing
             let single_result = self.benchmark_random_single_read(fitting_pos, &id_device, port_nr);
             full_time_ms += single_result;
         }
-        /*info!(
+        info!(
             "finished random read benchmark, with one sector at a random position and {} repetitions",
             repetitions
         );
         info!(
             "managed to read with a complete time of {} ms",
             full_time_ms
-        );*/
+        );
         full_time_ms
     }
 
-    // after the read benchmarks now the write benchmarks
+    
+    /*
+    test if a given number of sectors are written successfully to the device, starting from sector 0
+
+    sector_count is the number of sectors to write
+    id_device is the device info needed for the driver
+    port_nr is the port number where the write should take place
+
+    if the written sectors dont have the right value it returns -1
+    if the write was successfull, it returns the needed time
+     */
 
     pub unsafe fn benchmark_check_single_write(
         &self,
@@ -1799,44 +1833,55 @@ impl AhciController {
         id_device: &DeviceInfo,
         port_nr: u32,
     ) -> isize {
-        // schreibe in die Sektoren
+        //write the number into the sectors
         let work_time = self.test_write(port_nr, 0, sector_count, 5, &id_device);
 
-        // bereite den Buffer fürs Lesen vor
-        let sector_size = 512; //id_device.bytesPerSector;
+        //create the buffer for the read control
+        let sector_size = SEKTORGROESSE;
         let read_bytes: u64 = (SEKTORGROESSE * sector_count as u32) as u64;
         let single_region = AhciController::allocate_heap_region(read_bytes);
         let single_region_ptr = single_region.start.start_address().as_u64() as *mut u8;
         let buffer = core::slice::from_raw_parts_mut(single_region_ptr, read_bytes as usize);
 
-        //lese aus den Sektoren, in die gerade geschrieben werden sollte
+        //read from the written sectors
+        //the result should only contain the nr_to_write value
         let read = self.test_read(0, sector_count as usize, buffer, port_nr, &id_device);
-        //info!("die länge des arr ist {}", read.len());
-        //info!("das array ist: {:?}", read);
         let mut count = 0;
         let mut count_bad = 0;
         let mut success = true;
         for i in 0..buffer.len() {
             if buffer[i] != 5 {
-                /*info!(
-                    "error, das passt nicht: i ist {}, in sektor {}, sollte 5 sein, ist aber {}",
-                    i, sector, buffer[i]
-                );*/
-                //todo: hier die 16 Byte anschauen
+                info!(
+                    "ERR: test_read has a different value on position: {}. The value should be 5 but is: {}",
+                    i, buffer[i]
+                );
                 success = false;
                 count_bad += 1;
-                info!("achtung: buffer ist falsch mit: {:?}", buffer[i]);
                 break;
             } else {
                 count += 1;
             }
         }
-        //info!("count ist: {} und bad count ist: {}", count, count_bad);
-        // reset the sectors to another value
+
+        // reset the sectors to another value, so in a repetition another write command has the same payload
         self.test_write(port_nr, 0, sector_count, 8, &id_device);
+
+        //free the read control buffer since it is no longer needed
         frames::free(single_region);
+
+        //return the result of the benchmark
         if success { work_time } else { -1 }
     }
+
+    /*
+    one write at a random given position
+    because this type of benchmark only gets testet after the sequential one is done, we can assume that the written sectors are correct
+
+    start_sector is the random sector number selected for the write access
+    id_device is the device info needed for the driver
+    port_nr is the number of the port where the write should take place
+        
+     */
 
     pub unsafe fn benchmark_random_single_write(
         &self,
@@ -1894,7 +1939,6 @@ impl AhciController {
             "die Zeiten des write Benchmarks sind: \n{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}",
             q1, q2, q3, q4, q5, q6, q7, q8, q9, q10
         );
-        //info!("die Zeiten des write Benchmarks sind: {:?}", write_times);
     }
 
     pub unsafe fn benchmark_random_write(&self, repetitions: u32, port_nr: u32) -> isize {
