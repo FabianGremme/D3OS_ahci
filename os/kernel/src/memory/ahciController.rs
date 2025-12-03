@@ -1595,6 +1595,18 @@ impl AhciController {
     
     *****************************************************************************************************************************/
 
+    /*
+    test if a read amount of sectors has the right data, starting from sector 0
+
+    sector_count is the number of sectors to read
+    correct_arr is the expected result
+    id_device is the DeviceInfo needed for the driver
+    port_nr is the port number where the read should take place
+
+    if the read sectors does not fit with the correct array, it returns -1
+    if the read was successfull, it returns the needed time
+     */
+    
     pub unsafe fn benchmark_check_single_read(
         &self,
         sector_count: u32,
@@ -1602,52 +1614,59 @@ impl AhciController {
         id_device: &DeviceInfo,
         port_nr: u32,
     ) -> isize {
-        // test, if the read amt of sectors is correct.
-        //times only during the reading process and returns the time in ms
-        // if the read sectors does not fit with the correct array, it returns -1
 
-        //start timer:
+        let sector_size = SEKTORGROESSE;
 
-        let sector_size = SEKTORGROESSE; //id_device.bytesPerSector;
-
+        //create the buffer for the result
         let read_bytes: u64 = (sector_size * sector_count) as u64;
         let single_region = AhciController::allocate_heap_region(read_bytes);
         let single_region_ptr = single_region.start.start_address().as_u64() as *mut u8;
         let buffer = core::slice::from_raw_parts_mut(single_region_ptr, read_bytes as usize);
 
+        //start timer
         let start_time = sys_get_system_time();
 
+        //perform the read using the driver
         let read_bytes = self.test_read(0, sector_count as usize, buffer, port_nr, id_device);
 
+        //end timer
         let end_time = sys_get_system_time();
 
+        //calculate the needed time
         let mut read_time = end_time - start_time;
 
-        //irgendwas stimmt hier mit dem array nicht
-        //info!("read sectors sind: {:?}", array);
+        //check if the result matches with the expected result
         let mut equal = true;
         for i in 0..buffer.len() {
             if buffer[i] != correct_arr[i] {
                 info!(
-                    "array an stelle {} ist {}, und korrect wäre {}",
+                    "wrong position {} has the value {} while expected was {}",
                     i, buffer[i], correct_arr[i]
                 );
                 equal = false;
                 break;
-                // problem: ab 860486 wird nur 255 ausgelesen. was stimmt da mit der Platte nicht??
             }
         }
+
+        //free the memory region for the result since it is no longer needed 
         frames::free(single_region);
 
         if equal {
-            //irgendwie wieder die read sectors herausbekommen und dann mit free arbeiten
-            //info!("in benchmark_check_single_read, in if yes");
             read_time
         } else {
-            //info!("in benchmark_check_single_read, in if no");
             -1 as isize
         }
     }
+
+    /*
+    one read at a random given position
+    because this type of benchmark only gets testet after the sequential one is done, we can assume that the read sectors are correct
+
+    position is the random sector number selected for the read access
+    id_device is the DeviceInfo needed for the driver
+    port_nr is the number of the port where the read should take place
+    
+     */
 
     pub unsafe fn benchmark_random_single_read(
         &self,
@@ -1655,30 +1674,34 @@ impl AhciController {
         id_device: &DeviceInfo,
         port_nr: u32,
     ) -> isize {
-        //times only during the reading process and returns the time in ms
-        //the start sector is random for that:
-        //info!("the position is {}", position);
-        //start timer:
+
         let read_bytes: u64 = SEKTORGROESSE as u64;
+
+        //create the memory region for the result
         let single_region = AhciController::allocate_heap_region(read_bytes);
         let single_region_ptr = single_region.start.start_address().as_u64() as *mut u8;
         let buffer = core::slice::from_raw_parts_mut(single_region_ptr, read_bytes as usize);
 
+        //start timer
         let start_time = sys_get_system_time();
 
+        //perform the read using the driver
         let read_bytes = self.test_read(position, 1, buffer, port_nr, id_device);
 
+        //end timer
         let end_time = sys_get_system_time();
+
+        //free the memory region for the result since it is no longer needed 
         frames::free(single_region);
 
-        // because this type of benchmark only gets testet after the sequential one is done, we can assume that the read sectors are correct
+        //calculate the needed time
         (end_time - start_time) as isize
     }
 
+
+
     pub unsafe fn benchmark_read(&self, sector_count: u32, repetitions: u32, port_nr: u32) {
-        //repetitions should be a multiple of 10
-        // all benchmarks on hdd.img
-        info!(
+         info!(
             "start read benchmark, with {} sectors in a sequence and {} repetitions",
             sector_count, repetitions
         );
@@ -1689,7 +1712,7 @@ impl AhciController {
         let sector_size = 512; //id_device.bytesPerSector;
         let read_bytes: u64 = (sector_size * sector_count) as u64;
         let single_region = AhciController::allocate_heap_region(read_bytes);
-        info!("alloziiere einen buffer von {} bytes", read_bytes);
+        info!("allocate buffer with {} bytes in size", read_bytes);
         let single_region_ptr = single_region.start.start_address().as_u64() as *mut u8;
         let buffer = core::slice::from_raw_parts_mut(single_region_ptr, read_bytes as usize);
 
@@ -2055,41 +2078,8 @@ impl BlockDevice for AHCIDrive {
     }
 
     fn sector_size(&self) -> u16 {
-        SEKTORGROESSE as u16 //self.info.bytesPerSector
+        SEKTORGROESSE as u16
     }
 }
 
-/*
 
-    //in der init müssen noch die Block Devices richtig gemacht werden:
-pub fn init() {
-    let devices = pci_bus().search_by_class(0x01, 0x01);
-    for device in devices {
-        let device_id = device.read().header().id(pci_bus().config_space());
-        info!("Found IDE controller [{}:{}]", device_id.0, device_id.1);
-
-        let ide_controller = Arc::new(IdeController::new(device));
-        IdeController::plugin(Arc::clone(&ide_controller));
-
-        let found_drives = ide_controller.init_drives();
-        for drive in found_drives.iter() {
-            let block_device = Arc::new(IdeDrive::new(Arc::clone(&ide_controller), *drive));
-            add_block_device("ata", block_device);
-        }
-    }
-}
-
-*/
-
-// Todo:
-//Comand Liste anschauen (es werden 31 command slots unterstützt) (es wird kein weiterer gefunden)
-//command table mit allen 32 headern versuchen zu allocaten
-
-// Fehler werden mit f zu geschrieben, weil das -1 repräsentiert
-// Warum bekomme ich viele Ports mit der selben Adresse? gibt es nur einen Port, oder woran liegt das?  (aktuell existiert ein Port)
-
-//hier die impl für Block Device
-// finde die richtige Darstellungsweise, soll ich ein neues struct erstellen?
-
-// Idee: ich mache das Struct so wie im Drive, dann wird innerhalb des Drive nur read, write, info zeug so gemacht. alles andere ist dann in der
-// impl des ahci controllers
