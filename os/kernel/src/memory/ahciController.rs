@@ -385,7 +385,7 @@ pub fn init() {
         info!("test read");
 
         //Experiment für test_read
-        let read_bytes: u64 = (512 * sector_count) as u64;
+        let read_bytes: u64 = (SEKTORGROESSE * sector_count as u32) as u64;
         info!("bytes to read: {}", read_bytes);
         let single_region = AhciController::allocate_heap_region(read_bytes);
         let single_region_ptr = single_region.start.start_address().as_u64() as *mut u8;
