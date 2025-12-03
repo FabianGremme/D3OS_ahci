@@ -34,10 +34,11 @@ use x86_64::structures::paging::frame::PhysFrameRange;
 use x86_64::structures::paging::page::PageRange;
 use x86_64::structures::paging::{Page, PageTableFlags};
 
+//pci device numbers
 const MASS_STORAGE_DEVICE: BaseClass = 0x01;
 const SATA_CONTROLLER: SubClass = 0x06;
 
-//wird verwendet, um die command engine zu starten und zu stoppen
+//command engine
 const START: u32 = 1 << 0;
 const FIS_RECIVE_ENABLE: u32 = 1 << 4;
 const FIS_RECEIVE_RUNNING: u32 = 1 << 14;
@@ -56,7 +57,7 @@ const ATAPI_READ_CAPACITY: u8 = 0x25;
 
 //sektorgroesse
 const SEKTORGROESSE: u32 = 512;
-const SEKTORZAHL: usize = 8*9*1024;        //8*8*1024 on qemu or small descriptor sizes
+const SEKTORZAHL: usize = 8*8*1024;        //8*8*1024 on qemu or small descriptor sizes
 const SMALLDESCRIPTOR: u32 = 4 * 1024;
 const BIGDESCRIPTOR: u32 = 4 * 1024 * 1024;
 
