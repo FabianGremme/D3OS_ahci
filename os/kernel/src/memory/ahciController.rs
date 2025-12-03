@@ -943,14 +943,14 @@ impl AhciController {
             
             // check if the port is available
             if Self::check_port_usable(port) != true {
-                info!("ERR: Port is not usable");
+                info!("ERR: port is not usable");
                 return;
             }
 
             // check if a command slot is ready
             let slot = self.find_cmd_slot(port);
             if slot == -1 {
-                info!("ERR: Slot nicht gefunden");
+                info!("ERR: no slot available");
                 return;
             }
 
@@ -982,7 +982,7 @@ impl AhciController {
             (*cmd_table).commandFis = command_fis.clone();
             (*cmd_table).atapiCommand = atapi_command.clone();
 
-            
+            // calculate the length of the prdt
             let mut physical_region_descriptor_table_length;
             let full_amt = byte_count / (BIGDESCRIPTOR);
             let rest = byte_count % (BIGDESCRIPTOR);
@@ -992,52 +992,52 @@ impl AhciController {
                 physical_region_descriptor_table_length = full_amt;
             }
 
-            //nachschauen, wie ich auf diese Größen komme
             let mut cmd_fis_len = size_of::<FisRegisterHostToDevice>() / size_of::<u32>();
-            let mut atapi = 0; //atapi ist 0 weil id device für ata und atapi geräte universell ist
+            // the atapi field is only used for atapi commands that are not identify device
+            let mut atapi = 0;
             if atapi_command[0] != 0 {
                 atapi = 1;
             }
-            //zerteile die Adresse
+            //splitting the 64 bit base address into two 32 bit addresses
             let cmd_table_base_addr: u64 = prdt_start_addr; //cmd_table as u64;
             let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
             let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
 
-            //Feld first zusammenbauen (atapi, cmd_fis_len und prdt_len)
-            // atapi ist 0, weil es ein ata Befehl ist
-            // cmd_fis_len ist 5
-            //prdt_len ist 1 (weil nur eine prdt benötigt wird)
+            //the dword0 field contains atapi, cmd_fis_len and prdt_len
+            //assemble the dword0
             let dword0 = (physical_region_descriptor_table_length << 16) as u32
                 | (atapi << 5) as u32
                 | cmd_fis_len as u32;
             (*first_cmd_header).dword0 = dword0;
-            //info!("dword0 im read ist ist {:b}", dword0);
+            
 
             (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
             (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
-            (*first_cmd_header).physicalRegionDescriptorByteCount = 0; //byte_count;
+            //this filed works even with no value in qemu and on real hardware
+            (*first_cmd_header).physicalRegionDescriptorByteCount = 0;
 
-            //info!("read issue command");
+            //sending the command to the port
             let success = (*port).issueCommand(slot as u32);
             if !success {
-                info!("ERR: issueCommand hatte einen Fehler")
+                info!("ERR: issueCommand failed")
             }
 
-            // schreibe in die prdt 0, damit der Speicher nicht komisch wird
-
-            let mut prdt_sl = core::slice::from_raw_parts_mut(
-                prdt_start_addr as *mut u8,
-                allocated_space_for_descriptors as usize,
-            );
-            for i in 0..prdt_sl.len() {
-                prdt_sl[i] = 0;
-            }
+            //free the prdt because it is no longer needed
             frames::free(prdt_frames);
 
-            //Some(physical_dma)
         }
     }
 
+    /*
+    performs a write access on a given port
+
+    portnr is the number of the port on which the access needs to take place
+    physical_dma is the address of the dma region where the data to write is
+    byte_count is the amount of bytes that need to be processed
+    command_fis is the command structure that needs to be processed
+    atapi_command is a possible command structure add on if the driver supports atapi devices
+    nearly the same as the read_from_device
+     */
     pub unsafe fn write_to_device(
         &self,
         portnr: u32,
@@ -1049,52 +1049,46 @@ impl AhciController {
         let mut port = (self.ports_start as *mut HbaPort).offset(portnr.try_into().unwrap());
         let mut command_list_addr = (*port).commandListBaseAddress as u64
             | (((*port).commandListBaseAddressUpper as u64) << 32);
-        // weil ich nur bisher einen cmd_header in der Liste habe, kann ich da direkt reinschreiben
+        //get the command header
         let mut first_cmd_header = Self::get_cmd_table_header(command_list_addr as *mut u8);
-        //die command List besteht aus cmd_table_headern, welche selbst dann auf die command Table verweisen
-        //info!("###########command fis read ist {:?}", command_fis);
         if Self::check_port_usable(port) != true {
-            info!("ERR: Port is not usable");
+            info!("ERR: port is not usable");
             return false;
         }
 
+        //get the slot
         let slot = self.find_cmd_slot(port);
         if slot == -1 {
-            info!("ERR: Slot nicht gefunden");
+            info!("ERR: no slot available");
             return false;
         }
 
-        // hier wird nur die command table gemacht, nicht die command list
-        //berechne, wie viele descriptoren benötigt werden
+        //calculate the needed number of descriptors
         let mut descriptor_count: u32;
-        //info!("write byte count ist: {:?}", byte_count);
-        //info!("berechne descriptor_count: {:?}", byte_count / 4096);
         let full_amt: u32 = byte_count / (BIGDESCRIPTOR);
         let rest = byte_count % (BIGDESCRIPTOR);
-        //info!("full amt is {} and rest ist {}", full_amt, rest);
         if rest != 0 {
             descriptor_count = full_amt + 1;
         } else {
             descriptor_count = full_amt;
         }
 
+        //allocate the descriptors
         let descriptors_per_page = 4096 / size_of::<HbaPhysicalRegionDescriptorTableEntry>();
-        //info!("es passen {} Descriptors auf eine page", descriptors_per_page);
-
         let allocated_space_for_descriptors =
             ((descriptor_count / descriptors_per_page as u32) + 1) as u64;
 
-        //info!("allocate beim Schreiben {} pages für {} descriptors", allocated_space_for_descriptors, descriptor_count);
-
+        //build the prdt
         let prdt_frames = frames::alloc(allocated_space_for_descriptors as usize);
         let prdt_start_addr = prdt_frames.start.start_address().as_u64();
 
+        //connect the prdt with the command header
         let mut cmd_table =
             self.create_hba_cmd_table(byte_count, physical_dma, prdt_start_addr, descriptor_count);
         (*cmd_table).commandFis = command_fis.clone();
         (*cmd_table).atapiCommand = atapi_command.clone();
 
-        // info!("byte count in read to device ist {}", byte_count);
+        //calculate the length of the prdt
         let mut physical_region_descriptor_table_length;
         let full_amt = byte_count / (BIGDESCRIPTOR);
         let rest = byte_count % (BIGDESCRIPTOR);
@@ -1104,51 +1098,58 @@ impl AhciController {
             physical_region_descriptor_table_length = full_amt;
         }
 
-        //nachschauen, wie ich auf diese Größen komme
         let mut cmd_fis_len = size_of::<FisRegisterHostToDevice>() / size_of::<u32>();
-        let mut atapi = 0; //atapi ist 0 weil id device für ata und atapi geräte universell ist
+        let mut atapi = 0;
         if atapi_command[0] != 0 {
             atapi = 1;
         }
+        //difference from read_from_device: the write bit has to be set
+        //this change only matters for real hardware
         let write = 1;
-        //zerteile die Adresse
-        let cmd_table_base_addr: u64 = prdt_start_addr; //cmd_table as u64;
+        
+        
+        let cmd_table_base_addr: u64 = prdt_start_addr;
         let upper_cmd_table_base_addr: u32 = (cmd_table_base_addr >> 32) as u32;
         let lower_cmd_table_base_addr = cmd_table_base_addr as u32;
 
-        //Feld first zusammenbauen (atapi, cmd_fis_len und prdt_len)
-        // atapi ist 0, weil es ein ata Befehl ist
-        // cmd_fis_len ist 5
-        //prdt_len ist 1 (weil nur eine prdt benötigt wird)
+        //the dword0 field contains atapi, cmd_fis_len and prdt_len
+        //assemble the dword0
         let dword0 = (physical_region_descriptor_table_length << 16) as u32
             | (atapi << 5) as u32
             | (write << 6) as u32
             | cmd_fis_len as u32;
         (*first_cmd_header).dword0 = dword0;
-        //info!("dword0 im read ist ist {:b}", dword0);
 
         (*first_cmd_header).commandTableDescriptorBaseAddressUpper = upper_cmd_table_base_addr;
         (*first_cmd_header).commandTableDescriptorBaseAddress = lower_cmd_table_base_addr;
-        (*first_cmd_header).physicalRegionDescriptorByteCount = 0; //byte_count;
+        //this filed works even with no value in qemu and on real hardware
+        (*first_cmd_header).physicalRegionDescriptorByteCount = 0;
 
-        //info!("read issue command");
+        //sending the command to the port
         let success = (*port).issueCommand(slot as u32);
         if !success {
             info!("ERR: issueCommand hatte einen Fehler")
         }
-        // schreibe in die prdt 0, damit der Speicher nicht komisch wird
 
-        let mut prdt_sl = core::slice::from_raw_parts_mut(
-            prdt_start_addr as *mut u8,
-            allocated_space_for_descriptors as usize,
-        );
-        for i in 0..prdt_sl.len() {
-            prdt_sl[i] = 0;
-        }
+        //free the prdt because it is no longer needed
         frames::free(prdt_frames);
         return true;
     }
 
+
+    /*
+    the main access of this driver
+    combines read and write requests
+
+    portnr is the number of the port on which the access needs to take place
+    max_capacity is the amount of sectors provided by the device
+        this value can be found in the DeviceInfo
+    mode is the toggle between read and write
+    buffer_addr is the address of the dma region where the results should be written into, or the data to write is
+    start_sector is the number of the sector where the access should start
+        the first sector of the device is 0
+    sector_count is the amount of sectors needed for the access
+     */
     pub unsafe fn performAtaIO(
         &self,
         portnr: u32,
@@ -1158,31 +1159,25 @@ impl AhciController {
         start_sector: u64,
         sector_count: u32,
     ) -> bool {
+        //check that the position of the access is valid
         if start_sector + (sector_count as u64) > max_capacity {
             info!("ERR: AHCI trys to read/write out of bounds!");
-            /*   info!(
-                "start sector ist {}, und sector count ist {}",
-                start_sector, sector_count
-            );
-            info!("lba capacity ist:{}", max_capacity);*/
             return false;
         }
-        // info!("start Sector in perform ataio ist: {}", start_sector);
 
         let mut command_fis = [0u8; 64];
         let mut atapi_cmd = [0u8; 16];
 
-        //baue das command fis
-        // gibt es hier Probleme??
+        //create the command fis
         let mut host_to_device_fis = FisRegisterHostToDevice {
-            typ: 39,                     //Typ = Host To Device
-            port_mult_and_cmd_ctrl: 128, //nur command control ist auf 1
+            typ: 39,                                        //typ = Host To Device
+            port_mult_and_cmd_ctrl: 128,                    //only command control is 1
             command: 0,
-            featureLow: 1, //todo das hier ist auf 0 war vorher 1
+            featureLow: 1,
             lba0: (start_sector & 0xff) as u8,
             lba1: (start_sector >> 8 & 0xff) as u8,
             lba2: (start_sector >> 16 & 0xff) as u8,
-            device: 1 << 6, // LBA mode
+            device: 1 << 6,                                  // LBA mode is on
             lba3: (start_sector >> 24 & 0xff) as u8,
             lba4: (start_sector >> 32 & 0xff) as u8,
             lba5: (start_sector >> 40 & 0xff) as u8,
@@ -1202,10 +1197,15 @@ impl AhciController {
                 let src = &host_to_device_fis as *const FisRegisterHostToDevice as *const u8;
                 ptr::copy_nonoverlapping(src, ptr, size_of::<FisRegisterHostToDevice>());
             }
+
+            //calculate the buffer size
+            let buffer_size = sector_count * SEKTORGROESSE;
+
+            //pass everything into read function
             self.read_from_device(
                 portnr,
                 buffer_addr,
-                sector_count * 512, //(deviceInfo.bytesPerSector as u32),
+                buffer_size, 
                 command_fis,
                 atapi_cmd,
             );
@@ -1219,23 +1219,28 @@ impl AhciController {
                 ptr::copy_nonoverlapping(src, ptr, size_of::<FisRegisterHostToDevice>());
             }
 
-            //schicke die Daten an wrtie_to_device
 
-            let buffer_size = sector_count * 512; //(deviceInfo.bytesPerSector as u32);
+            //calculate the buffer size
+            let buffer_size = sector_count * SEKTORGROESSE;
 
-            //hier wird in den Buffer geschrieben
-            //info!("command fis ist {:?}", command_fis);
-
+            //pass everything into write function
             let success =
                 self.write_to_device(portnr, buffer_addr, buffer_size, command_fis, atapi_cmd);
-            // todo hier könnten noch allocs gelöscht werden, kommt erst im cleanup
             return success;
         }
 
         return true;
     }
 
-    //diese Funktionen soll dann auch von Block Device ausgeführt werden
+    /*
+    general version of the read command
+
+    start_sector is the number of the first sector to access
+    count is the amount of sectors to access
+    buffer is the region where the result is written to
+    portnr is the number of the port to access
+    id_device is the DeviceInfo of the device to access
+     */
     unsafe fn read(
         &self,
         start_sector: u64,
@@ -1244,34 +1249,40 @@ impl AhciController {
         portnr: u32,
         id_device: &DeviceInfo,
     ) -> usize {
+        //split the whole command payload into chunks the driver can work with
         let mut read_reps = count / SEKTORZAHL;
         let read_rest = count % SEKTORZAHL;
-
         if read_rest != 0 {
             read_reps = read_reps + 1;
         }
 
-        //info!("read reps ist: {} und read rest ist {}", read_reps, read_rest);
+        //the end of the last chunk
         let mut current_offset = 0;
 
+        //the real hardware has the value 0 for bytesPerSector
+        //this driver only works with sector sizes of 512
+        let mut sector_size = id_device.bytesPerSector;
+        if sector_size == 0 {
+            sector_size = 512;
+        }
+
         for i in 0..read_reps {
-            let mut sector_size = id_device.bytesPerSector;
-            if sector_size == 0 {
-                sector_size = 512;
-            }
+            
+            //calculate the size of the current chunk
             let remaining = count - (i * SEKTORZAHL);
-
             let mut sector_count = remaining;
-
             if sector_count > SEKTORZAHL {
                 sector_count = SEKTORZAHL;
             }
 
             let read_bytes: u64 = (sector_size as usize * sector_count) as u64;
-            //info!("alloc from test_read, mit sector count {}", sector_count);
+
+            //create the result region for the current chunk
             let region_buffer = AhciController::allocate_heap_region(read_bytes);
             let region_buffer_addr = region_buffer.start.start_address().as_u64();
             let max_capacity = id_device.lbaCapacity.try_into().unwrap();
+
+            //send all data to the driver
             self.performAtaIO(
                 portnr,
                 max_capacity,
@@ -1281,25 +1292,31 @@ impl AhciController {
                 sector_count as u32,
             );
 
+            //copy the current result chunk into the right position of the whole result area
             let mut region_ptr = region_buffer_addr as *mut u8;
             let mybuffer = core::slice::from_raw_parts_mut(region_ptr, read_bytes as usize);
-            /*for i in 0..mybuffer.len(){
-                if mybuffer[i] != 5{
-                    info!("Es scheitert schon in den test read!!");
-                    break;
-                }
-            }*/
-
             let buffer_pos = buffer.as_mut_ptr().offset(current_offset);
             ptr::copy_nonoverlapping(region_ptr, buffer_pos, read_bytes as usize);
 
+            //increase the chunk end for next iteration
             current_offset = current_offset + read_bytes as isize;
 
+            //free the result area for the current iteration because it is no longer needed
             frames::free(region_buffer);
         }
         return count;
     }
 
+
+    /*
+    general version of the write command
+
+    start_sector is the number of the first sector to access
+    count is the amount of sectors to access
+    buffer is the region where the data to write is
+    portnr is the number of the port to access
+    id_device is the DeviceInfo of the device to access
+     */
     unsafe fn write(
         &self,
         start_sector: u64,
@@ -1308,42 +1325,46 @@ impl AhciController {
         portnr: u32,
         id_device: &DeviceInfo,
     ) -> usize {
+        //split the whole command payload into chunks the driver can work with
         let mut write_reps = count / SEKTORZAHL;
         let write_rest = count % SEKTORZAHL;
-
         if write_rest != 0 {
             write_reps = write_reps + 1;
         }
-        for i in 0..write_reps {
-            let mut sector_size = id_device.bytesPerSector;
+
+        //the real hardware has the value 0 for bytesPerSector
+        //this driver only works with sector sizes of 512
+        let mut sector_size = id_device.bytesPerSector;
             if sector_size == 0 {
                 sector_size = 512;
             }
+
+        for i in 0..write_reps {   
+
+            //calculate the size of the current chunk         
             let remaining = count - (i * SEKTORZAHL);
-
             let mut sector_count = remaining;
-
             if sector_count > SEKTORZAHL {
                 sector_count = SEKTORZAHL;
             }
 
             let write_bytes: u64 = (sector_size as usize * sector_count) as u64;
-            //info!("alloc from test_write");
+            
+            //create the working region with the info to write
             let write_region = AhciController::allocate_heap_region(write_bytes);
             let write_region_addr = write_region.start.start_address().as_u64();
-            //wandel den buffer zum slice um
+
             let mut write_region_ptr = write_region_addr as *mut u8;
             let mut write_sl =
                 core::slice::from_raw_parts_mut(write_region_ptr, write_bytes as usize);
-            //schreibe in den slice:
+            //copy the data to write from the given buffer to the working region
             for i in 0..write_sl.len() {
                 write_sl[i] = buffer[i];
             }
             let max_capacity = id_device.lbaCapacity.try_into().unwrap();
-            //schreibe das array an die Stelle in den Speicher:
-            //starte den Timer
-            let start_time = sys_get_system_time();
-            let help = self.performAtaIO(
+
+            //send all data to the driver
+            self.performAtaIO(
                 portnr,
                 max_capacity,
                 TransferMode::WRITE,
@@ -1351,12 +1372,15 @@ impl AhciController {
                 start_sector + (i * SEKTORZAHL) as u64,
                 sector_count as u32,
             );
-            //  info!("help ist {}", help);
+
+            //free the working region
             frames::free(write_region);
         }
         count
     }
 
+
+    
     pub unsafe fn init_all_ports_as_block_devices(&self) {
         let amt_port = self.check_cap_nr_of_ports();
         for i in 0..amt_port - 1 {
