@@ -635,12 +635,12 @@ impl AhciController {
         let det = ssts & 0x0F;
         if ipm != 0x01 {
             //0x01 means that the interface of the device is active. only then the device can be accessed
-            info!("ERR: interface is not active");
+            info!("ERR: interface is not active!");
             return false;
         }
         if det != 0x03 {
             //0x03 means that the device is detected and a physical communication is established
-            info!("ERR: device is not detected, or physical communication not established");
+            info!("ERR: device is not detected, or physical communication not established!");
             return false;
         }
         true
@@ -939,14 +939,14 @@ impl AhciController {
 
             // check if the port is available
             if Self::check_port_usable(port) != true {
-                info!("ERR: port is not usable");
+                info!("ERR: port is not usable!");
                 return;
             }
 
             // check if a command slot is ready
             let slot = self.find_cmd_slot(port);
             if slot == -1 {
-                info!("ERR: no slot available");
+                info!("ERR: no slot available!");
                 return;
             }
 
@@ -1014,7 +1014,7 @@ impl AhciController {
             //sending the command to the port
             let success = (*port).issueCommand(slot as u32);
             if !success {
-                info!("ERR: issueCommand failed")
+                info!("ERR: issueCommand failed!")
             }
 
             //free the prdt because it is no longer needed
@@ -1046,14 +1046,14 @@ impl AhciController {
         //get the command header
         let mut first_cmd_header = Self::get_cmd_table_header(command_list_addr as *mut u8);
         if Self::check_port_usable(port) != true {
-            info!("ERR: port is not usable");
+            info!("ERR: port is not usable!");
             return false;
         }
 
         //get the slot
         let slot = self.find_cmd_slot(port);
         if slot == -1 {
-            info!("ERR: no slot available");
+            info!("ERR: no slot available!");
             return false;
         }
 
@@ -1121,7 +1121,7 @@ impl AhciController {
         //sending the command to the port
         let success = (*port).issueCommand(slot as u32);
         if !success {
-            info!("ERR: issueCommand hatte einen Fehler")
+            info!("ERR: issueCommand hatte einen Fehler!")
         }
 
         //free the prdt because it is no longer needed
@@ -1852,7 +1852,7 @@ impl AhciController {
         for i in 0..buffer.len() {
             if buffer[i] != 5 {
                 info!(
-                    "ERR: test_read has a different value on position: {}. The value should be 5 but is: {}",
+                    "ERR: test_read has a different value on position: {}. The value should be 5 but is: {} !",
                     i, buffer[i]
                 );
                 success = false;
@@ -1890,23 +1890,34 @@ impl AhciController {
         port_nr: u32,
     ) -> isize {
         let work_time = self.test_write(port_nr, start_sector, 1, 5, id_device);
+
         // reset the sectors to another value
-        //self.test_write(port_nr, start_sector, 1, 8, id_device);
+        self.test_write(port_nr, start_sector, 1, 8, id_device);
         work_time
     }
 
+    /*
+    the complete benchmark in the sequential scenario
+
+    sector_count is the number of sectors to write
+    repetitions should be 100, else the time splitting at the end need ajustment
+    port_nr is the port number the access takes place
+     */
+
     pub unsafe fn benchmark_write(&self, sector_count: usize, repetitions: u32, port_nr: u32) {
-        // always start at the first sector on the hdd.img
         info!(
             "start write benchmark, with {} sectors in a sequence and {} repetitions",
             sector_count, repetitions
         );
 
         let mut write_times: Vec<isize> = Vec::new();
+
+        //get the device info for the driver
         let id_device = self.identify_device(port_nr);
         let mut full_time_ms = 0;
         let mut amt_success = 0;
 
+        //running the benchmark
         for i in 0..repetitions {
             let single_result =
                 self.benchmark_check_single_write(sector_count, &id_device, port_nr);
@@ -1915,7 +1926,6 @@ impl AhciController {
                 amt_success += 1;
                 write_times.push(single_result);
             }
-            //info!("write done {}", i);
         }
         info!(
             "finished write benchmark, with {} sectors in a sequence and {} repetitions",
@@ -1925,6 +1935,8 @@ impl AhciController {
             "managed to write {} of {} times successfully with a complete time of {} ms",
             amt_success, repetitions, full_time_ms
         );
+
+        //split the 100 repetitions so minicom shows every single value 
         let q1 = &write_times[0..10];
         let q2 = &write_times[10..20];
         let q3 = &write_times[20..30];
@@ -1935,19 +1947,23 @@ impl AhciController {
         let q8 = &write_times[70..80];
         let q9 = &write_times[80..90];
         let q10 = &write_times[90..100];
+
+        //print the results in 10 rows so there is enough space for every result
         info!(
             "die Zeiten des write Benchmarks sind: \n{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}",
             q1, q2, q3, q4, q5, q6, q7, q8, q9, q10
         );
     }
 
+
+    /*
+    the complete random write benchmark
+
+    repetitions is the number of repetitions wanted
+    port_nr is the port number the access takes place
+     */
+
     pub unsafe fn benchmark_random_write(&self, repetitions: u32, port_nr: u32) -> isize {
-        //repetitions should be a multiple of 10
-        // all benchmarks on hdd.img
-        /*info!(
-            "start random write benchmark, with one sector at a random position and {} repetitions",
-            repetitions
-        );*/
         let id_device = self.identify_device(port_nr);
         let mut full_time_ms = 0;
 
@@ -1960,29 +1976,38 @@ impl AhciController {
             let rand_pos = small_rng.next_u64();
             let max_amt_of_sectors = (id_device.lbaCapacity - 1) as u64;
             let fitting_pos = max_amt_of_sectors & rand_pos;
-            //read one sector at the random position
+            //write one sector at the random position
             let single_result =
                 self.benchmark_random_single_write(fitting_pos, &id_device, port_nr);
             full_time_ms += single_result;
         }
-        /*info!(
+        info!(
             "finished random write benchmark, with one sector at a random position and {} repetitions",
             repetitions
         );
         info!(
             "managed to write with a complete time of {} ms",
             full_time_ms
-        );*/
+        );
         full_time_ms
     }
-
-    //second scenario: read and write sectors at random spots
 }
+
+
+/*****************************************************************************************************************************
+    issue command
+
+    this code belongs to the driver but need to be executed on the port
+    
+    each port can have multiple command slots but at the moment only slot 0 is needed
+    
+*****************************************************************************************************************************/
+
 
 #[allow(warnings)]
 impl HbaPort {
     pub fn issueCommand(&mut self, slot: u32) -> bool {
-        // Wait while device is busy
+        //define all values for the port
         const COMMAND_TIMEOUT: isize = 10000;
         const BIG_TIMEOUT: isize = 50000;
         const BUSY: u32 = 128;
@@ -1990,104 +2015,62 @@ impl HbaPort {
         const TASK_FILE_ERROR: u32 = 1 << 30;
         let mut timeout = sys_get_system_time() + COMMAND_TIMEOUT;
 
-        /*info!("issue command vor der ersten Schleife");
-        let cmd = self.command;
-        let sata_stat = self.sataStatus;
-        let sata_err = self.sataError;
-        let tfd = self.taskFileData;
-        let interrupt_stat = self.interruptStatus;
-        info!("command war: {}", cmd);
-        info!("sata status war: {}", sata_stat);
-        info!("sata error war: {}", sata_err);
-        info!("task file data war: {}", tfd);
-        info!("interrupt status war: {}", interrupt_stat);*/
-
+        // wait while device is busy
         while (self.taskFileData & (BUSY | DATA_TRANSFER_REQUESTED)) > 0 {
             if (sys_get_system_time() >= timeout) {
-                info!("system timeout 1");
+                info!("ERR: issue command reached a timeout before trying to complete the given command!");
                 return false;
             }
+            //continue with other threads while the device is working
             scheduler().switch_thread_no_interrupt();
         }
-        //info!("das System kann nicht mehr busy sein");
 
-        // Issue command
+        // issue command by setting the right bit
         self.commandIssue = 1 << slot;
 
-        /*info!("issue command vor der zweiten Schleife");
-        let cmd = self.command;
-        let sata_stat = self.sataStatus;
-        let sata_err = self.sataError;
-        let tfd = self.taskFileData;
-        let interrupt_stat = self.interruptStatus;
-        info!("command war: {}", cmd);
-        info!("sata status war: {}", sata_stat);
-        info!("sata error war: {}", sata_err);
-        info!("task file data war: {}", tfd);
-        info!("interrupt status war: {}", interrupt_stat);*/
 
-        // Wait for command completion
+        // wait for command completion
         timeout = sys_get_system_time() + BIG_TIMEOUT;
         while true {
             let test = self.sataError;
 
+            //the command is completed
             if ((self.commandIssue & (1 << slot)) == 0) {
-                //info!("issue command success");
-                // hier müssen noch die interrupt bits zurückgesetzt werden:
-                //self.interruptStatus = self.interruptStatus | 1 << 5;
-                //self.interruptStatus & 0xfffffffe;
                 break;
             }
 
-            //https://www.dgway.com/products/IP/SATA-IP/dg_sataahciip_refdesign_en/
-            //setze hier den descriptor auf bearbeitet:
-            // nachdem ein interrupt kam bedeutet das, dass der descriptor fertig bearbeitet wurde
-            /*if self.interruptStatus & 1 == 1{
-                self.interruptStatus = self.interruptStatus | 1<<5;
-                //info!("############# doing the interrupt stuff")
-            }*/
-
+            //there was an error during the command completion
             if (self.interruptStatus & TASK_FILE_ERROR) > 0 {
-                info!("interrupt status and task file error");
-                /*let cmd = self.command;
-                let sata_stat = self.sataStatus;
-                let sata_err = self.sataError;
-                let tfd = self.taskFileData;
-                let interrupt_stat = self.interruptStatus;
-                info!("command war: {}", cmd);
-                info!("sata status war: {}", sata_stat);
-                info!("sata error war: {}", sata_err);
-                info!("task file data war: {}", tfd);
-                info!("interrupt status war: {}", interrupt_stat);*/
+                info!("ERR: issue command could not complete the command!");
                 return false;
             }
 
+            //the command completion takes too long so the command is cancelled
             if (sys_get_system_time() >= timeout) {
-                info!("issue command ist im timeout");
-                /*let cmd = self.command;
-                let sata_stat = self.sataStatus;
-                let sata_err = self.sataError;
-                let tfd = self.taskFileData;
-                let interrupt_stat = self.interruptStatus;
-                info!("command war: {}", cmd);
-                info!("sata status war: {}", sata_stat);
-                info!("sata error war: {}", sata_err);
-                info!("task file data war: {}", tfd);
-                info!("interrupt status war: {}", interrupt_stat);*/
-                info!("system timeout 2");
+                info!("ERR: issue command reached a timeout while trying to complete the given command!");
                 return false;
             }
+
+            //continue with other threads while the device is working
             scheduler().switch_thread_no_interrupt();
         }
         true
     }
 }
 
+/*
+definition of an ahci drive which is needed for the block device trait
+*/
+
 pub struct AHCIDrive {
-    controller: Arc<AhciController>, // können mehrere Drives sich einen AHCI Controller nehmen? im ahci controller stehen ja nur Adressen
+    controller: Arc<AhciController>,
     info: DeviceInfo,
     portnr: u32,
 }
+
+/*
+constructor of the ahci drive for the device trait
+*/
 
 impl AHCIDrive {
     fn new(controller: Arc<AhciController>, portnr: u32) -> Self {
@@ -2099,6 +2082,10 @@ impl AHCIDrive {
         }
     }
 }
+
+/*
+implementation for the block device trait
+*/
 
 impl BlockDevice for AHCIDrive {
     fn read(&self, sector: u64, count: usize, buffer: &mut [u8]) -> usize {
