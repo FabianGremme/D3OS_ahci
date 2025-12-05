@@ -1372,7 +1372,7 @@ impl AhciController {
             let current_port = (self.ports_start as *mut HbaPort).offset(i.try_into().unwrap());
             info!("init Port {} as block device", i);
             if Self::check_port_usable(current_port) {
-                info!("port {} ist nutzbar", i);
+                info!("port {} is usable", i);
                 let ahci_drive = Arc::new(AHCIDrive::new(Arc::new(self.clone()), i));
                 add_block_device("ata", ahci_drive);
             }
@@ -1766,7 +1766,7 @@ impl AhciController {
 
         //print the results in 10 rows so there is enough space for every result
         info!(
-            "die Zeiten des read Benchmarks sind: \n{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}",
+            "the reading times are: \n{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}",
             q1, q2, q3, q4, q5, q6, q7, q8, q9, q10
         );
 
@@ -1950,7 +1950,7 @@ impl AhciController {
 
         //print the results in 10 rows so there is enough space for every result
         info!(
-            "die Zeiten des write Benchmarks sind: \n{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}",
+            "the write times are: \n{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}#\n#{:?}",
             q1, q2, q3, q4, q5, q6, q7, q8, q9, q10
         );
     }
