@@ -375,7 +375,7 @@ pub fn init() {
         ahci_controller.check_nr_of_command_slots();
 
         //small experiment to present reading and writing mechanics
-        info!("start experimente");
+        info!("start experiments");
         let portnr = 1;
         let test_add = 0;
         let sector_count = SEKTORZAHL + test_add;
